@@ -1,5 +1,7 @@
 export default {
   install: {
+    welcome: 'Welcome to Install DevStation',
+    chooseLang: 'Language',
     user_setup: 'User Setup',
     username: 'Username',
     password: 'Password',
@@ -7,6 +9,7 @@ export default {
     disk_setup: 'Disk Partitioning',
     target_disk: 'Target Disk',
     partition: 'Partition',
+    partitionResult: 'Partition Result',
     size: 'Size',
     mount_point: 'Mount Point',
     filesystem: 'Filesystem',
@@ -14,12 +17,17 @@ export default {
     installation_progress: 'Installation Progress',
     installing: 'Installing',
     complete: 'Complete',
-    start_install: 'Start Installation'
+    start_install: 'Start Installation',
+    minInstall: 'Minimize Install',
+    devStation: 'DevStation'
   },
   common: {
     pre: 'Previous',
     next: 'Next',
     cancel: 'Cancel',
-    remove: 'Remove'
+    remove: 'Remove',
+    blank: ' ',
+    others: 'Others',
+    free: 'Free Space'
   }
 }
