@@ -1,69 +1,88 @@
 <template>
   <div class="install-progress">
-    <h2>{{ t('install.installation_progress') }}</h2>
-    
-    <el-steps :active="activeStep" finish-status="success" align-center>
-      <el-step :title="t('install.user_setup')" />
-      <el-step :title="t('install.disk_partition')" />
-      <el-step :title="t('install.installing')" />
-      <el-step :title="t('install.complete')" />
-    </el-steps>
-    
-    <el-progress
-      :percentage="progress"
-      :status="installStatus"
-      :stroke-width="20"
-      style="margin-top: 30px"
-    />
-    
-    <div class="log-container">
-      <pre>{{ log }}</pre>
+    <div class="install-progress-hr" />
+    <div class="install-progress-bar">
+      <StepBar :step-num="3" />
+    </div>
+    <div class="install-progress-content">
+      <el-carousel :interval="4000" arrow="always" indicator-position="none">
+        <el-carousel-item v-for="idx in 3" :key="idx">
+          <el-empty :description="`pic-${idx}`"></el-empty>
+        </el-carousel-item>
+      </el-carousel>
+    </div>
+    <div class="install-progress-percent">
+      <el-progress class="progress-comp" :percentage="progress" :stroke-width="8" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import {ref, onMounted} from 'vue'
 import { useI18n } from 'vue-i18n'
-import { installService } from '@/services/InstallService'
+import StepBar from '@/views/components/installer/comp/StepBar.vue'
+
+const emit = defineEmits(['finish'])
 
 const { t } = useI18n()
 
-const progress = computed(() => installService.getProgress().value)
-const installStatus = computed(() => {
-  const status = installService.getStatus().value
-  return status === 'error' ? 'exception' : ''
-})
+const progress = ref(0)
 
-const activeStep = computed(() => {
-  const p = progress.value
-  if (p < 20) return 0
-  if (p < 40) return 1
-  if (p < 100) return 2
-  return 3
-})
+function reqProgress() {
+  progress.value += Math.floor(Math.random() * 20)
+  if (progress.value >= 100) {
+    progress.value = 100
+    emit('finish')
+  } else {
+    setTimeout(reqProgress, 500)
+  }
+}
 
-const log = ref('')
+onMounted(() => {
+  reqProgress()
+})
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .install-progress {
-  padding: 20px;
-  text-align: center;
-}
+  width: 100%;
+  height: 100%;
+  padding: 56px 0 72px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-direction: column;
 
-h2 {
-  margin-bottom: 30px;
-  color: #333;
-}
+  &-hr {
+    width: 100%;
+    height: 1px;
+    position: absolute;
+    top: 56px;
+    left: 0;
+    background-color: #dfe5ef;
+  }
 
-.log-container {
-  margin-top: 30px;
-  padding: 15px;
-  background: #f5f5f5;
-  border-radius: 4px;
-  max-height: 200px;
-  overflow-y: auto;
-  text-align: left;
+  &-bar {
+    width: calc(100% - 32px);
+    margin: 24px 0;
+  }
+
+  &-content {
+    width: calc(100% - 64px);
+    height: 300px;
+    background-color: #dfe5ef;
+  }
+
+  &-percent {
+    width: calc(100% - 64px);
+    margin-top: 24px;
+  }
+}
+:deep(.progress-comp) {
+  .el-progress__text {
+    margin-left: 0;
+    text-align: right;
+  }
 }
 </style>

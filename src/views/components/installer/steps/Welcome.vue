@@ -34,6 +34,10 @@ const rules = reactive({
 function changeLang(lang: string) {
   locale.value = lang;
 }
+
+defineExpose({
+  checkValid: () => true
+})
 </script>
 
 <style scoped lang="scss">

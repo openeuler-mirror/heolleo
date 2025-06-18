@@ -1,46 +1,57 @@
 <template>
   <div class="wrapper">
+    <div class="container">
+      <KeepAlive>
+        <component ref="stepCompRef" :is="currentStep" @next="nextStep" @prev="prevStep" @finish="onInstallFin" />
+      </KeepAlive>
+    </div>
     <div class="nav">
       <img class="logo" src="@/assets/logo_s.svg" alt="logo_s">
       <div class="close">
-        <el-icon size="16" color="#8d98aa" style="cursor: pointer;" @click.stop="closeApp">
+        <el-icon size="16" color="#8d98aa" style="cursor: pointer;" @click.stop="closeApp" v-show="currentStepIndex < 4">
           <IconX />
         </el-icon>
       </div>
     </div>
-    <div class="container">
-      <component :is="currentStep" @next="nextStep" @prev="prevStep" />
-    </div>
     <div class="footer">
-      <div class="footer-left">
-        <el-button 
-          size="small" 
+      <div class="footer-left" />
+      <div class="footer-right" v-if="currentStepIndex < 4">
+        <el-button
+          size="small"
           @click="prevStep"
           :disabled="currentStepIndex === 0"
         >
           {{ t('common.pre') }}
         </el-button>
-      </div>
-      <div class="footer-right">
-        <el-button 
-          v-if="currentStepIndex < steps.length - 1"
-          type="primary" 
-          size="small"
-          @click="nextStep"
-        >
-          {{ t('common.next') }}
-        </el-button>
-        <el-button 
-          v-else
-          type="primary" 
+        <el-button
+          v-if="currentStepIndex === 3"
+          type="primary"
           size="small"
           @click="startInstall"
           :loading="isInstalling"
         >
           {{ t('install.start_install') }}
         </el-button>
+        <el-button
+          v-else
+          type="primary"
+          size="small"
+          @click="nextStep"
+        >
+          {{ t('common.next') }}
+        </el-button>
         <el-button size="small" @click="closeApp">
           {{ t('common.cancel') }}
+        </el-button>
+      </div>
+      <div class="footer-right" v-else>
+        <el-button
+          type="primary"
+          size="small"
+          :loading="isInstalling"
+          @click="finishInstall"
+        >
+          {{ isInstalling ? '安装中' : '完成' }}
         </el-button>
       </div>
     </div>
@@ -48,14 +59,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef } from 'vue'
+import { computed, provide, reactive, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { IconX } from '@computing/opendesign-icons'
 import Welcome from './steps/Welcome.vue'
 import UserSetup from './steps/UserSetup.vue'
 import DiskPartition from './steps/DiskPartition.vue'
+import DiskPartitionInfo from './steps/DiskPartitionInfo.vue';
 import InstallProgress from './steps/InstallProgress.vue'
-import { installService } from '@/services/InstallService'
+import { INSTALL_INFO_KEY } from '@/utils/constant'
 
 const { t } = useI18n()
 
@@ -63,14 +75,29 @@ const steps = [
   shallowRef(Welcome),
   shallowRef(UserSetup),
   shallowRef(DiskPartition),
+  shallowRef(DiskPartitionInfo),
   shallowRef(InstallProgress)
-]
+];
 
+const stepCompRef = ref();
 const currentStepIndex = ref(0)
 const currentStep = computed(() => steps[currentStepIndex.value].value)
 const isInstalling = ref(false)
 
-function nextStep() {
+const installInfo = reactive({
+  username: '',
+  password: '',
+  adminPassword: '',
+  disk: '',
+  installType: '',
+  partitionType: ''
+})
+provide(INSTALL_INFO_KEY, installInfo)
+
+async function nextStep() {
+  if (!await stepCompRef.value?.checkValid()) {
+    return
+  }
   if (currentStepIndex.value < steps.length - 1) {
     currentStepIndex.value++
   }
@@ -87,13 +114,22 @@ async function startInstall() {
   try {
     // 执行安装逻辑
     // 这里应该调用installService中的方法
-    await new Promise(resolve => setTimeout(resolve, 3000)) // 模拟安装
+    await new Promise(resolve => setTimeout(resolve, 1000)) // 模拟安装
+    // 调用开始安装成功
     currentStepIndex.value++
   } catch (error) {
+    // 这里只放开始安装调用的失败，安装途中的失败在组件内处理
     console.error('Install failed:', error)
-  } finally {
     isInstalling.value = false
   }
+}
+
+function onInstallFin() {
+  isInstalling.value = false
+}
+
+function finishInstall() {
+  closeApp()
 }
 
 function closeApp() {
@@ -131,7 +167,6 @@ function closeApp() {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  padding: 56px 0 72px;
 }
 
 .footer {
