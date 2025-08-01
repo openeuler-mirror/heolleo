@@ -15,7 +15,7 @@
     </div>
     <div class="footer">
       <div class="footer-left" />
-      <div class="footer-right" v-if="currentStepIndex < 4">
+      <div class="footer-right" v-if="currentStepIndex < IDX_INSTALLING">
         <el-button
           size="small"
           @click="prevStep"
@@ -24,7 +24,7 @@
           {{ t('common.pre') }}
         </el-button>
         <el-button
-          v-if="currentStepIndex === 3"
+          v-if="currentStepIndex === IDX_SHOW_INSTALL"
           type="primary"
           size="small"
           @click="startInstall"
@@ -63,18 +63,24 @@ import { computed, provide, reactive, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { IconX } from '@computing/opendesign-icons'
 import Welcome from './steps/Welcome.vue'
-import UserSetup from './steps/UserSetup.vue'
+import BasicSetup from './steps/BasicSetup.vue'
 import DiskPartition from './steps/DiskPartition.vue'
-import DiskPartitionInfo from './steps/DiskPartitionInfo.vue';
+import DiskPartitionManual from './steps/DiskPartitionManual.vue'
+import DiskPartitionInfo from './steps/DiskPartitionInfo.vue'
 import InstallProgress from './steps/InstallProgress.vue'
 import { INSTALL_INFO_KEY } from '@/utils/constant'
 
 const { t } = useI18n()
 
+const IDX_DISK_PART = 2
+const IDX_SHOW_INSTALL = 4
+const IDX_INSTALLING = 5
+
 const steps = [
   shallowRef(Welcome),
-  shallowRef(UserSetup),
+  shallowRef(BasicSetup),
   shallowRef(DiskPartition),
+  shallowRef(DiskPartitionManual), // 手动分区选了才会进
   shallowRef(DiskPartitionInfo),
   shallowRef(InstallProgress)
 ];
@@ -85,17 +91,22 @@ const currentStep = computed(() => steps[currentStepIndex.value].value)
 const isInstalling = ref(false)
 
 const installInfo = reactive({
-  username: '',
-  password: '',
-  adminPassword: '',
+  timezone: '',
   disk: '',
   installType: '',
-  partitionType: ''
+  partitionType: '',
+  partInfo: [],
+  partInfoBefore: []
 })
 provide(INSTALL_INFO_KEY, installInfo)
 
 async function nextStep() {
   if (!await stepCompRef.value?.checkValid()) {
+    return
+  }
+  if (currentStepIndex.value === IDX_DISK_PART && installInfo.partitionType === 'auto') {
+    // 自动分区则跳过下一步
+    currentStepIndex.value += 2
     return
   }
   if (currentStepIndex.value < steps.length - 1) {
@@ -104,6 +115,11 @@ async function nextStep() {
 }
 
 function prevStep() {
+  if (currentStepIndex.value === (IDX_DISK_PART + 2) && installInfo.partitionType === 'auto') {
+    // 自动分区则跳过上一步的手动分区
+    currentStepIndex.value -= 2
+    return
+  }
   if (currentStepIndex.value > 0) {
     currentStepIndex.value--
   }

@@ -4,32 +4,35 @@
       <div class="step-num">
         <StepNumberSvg class="step-svg" step-num="1" :fill="colorList[0]" />
       </div>
-      <div class="step-text" :style="{color: colorList[0]}">用户设置</div>
+      <div class="step-text" :style="{color: colorList[0]}">{{ t('install.basic_setup') }}</div>
       <div class="step-line" :style="{backgroundColor: colorList[0]}" />
     </div>
     <div class="step-part">
       <div class="step-num">
         <StepNumberSvg class="step-svg" step-num="2" :fill="colorList[1]" />
       </div>
-      <div class="step-text" :style="{color: colorList[1]}">分区设置</div>
+      <div class="step-text" :style="{color: colorList[1]}">{{ t('install.disk_setup') }}</div>
       <div class="step-line" :style="{backgroundColor: colorList[1]}" />
     </div>
     <div class="step-part">
       <div class="step-num">
         <StepNumberSvg class="step-svg" step-num="3" :fill="colorList[2]" />
       </div>
-      <div class="step-text" :style="{color: colorList[2]}">安装</div>
+      <div class="step-text" :style="{color: colorList[2]}">{{ t('install.install') }}</div>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n'
 import StepNumberSvg from "@/views/components/svg/StepNumberSvg.vue";
 
 const props = defineProps<{
   stepNum: number;
 }>();
+
+const { t } = useI18n()
 
 const colorList = computed(
   () => [0, 1, 2].map(v => (props.stepNum > v ? '#0077ff' : '#8d98aa'))
