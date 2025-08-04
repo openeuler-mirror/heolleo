@@ -52,8 +52,9 @@ import { INSTALL_TYPES, INSTALL_INFO_KEY } from "@/utils/constant"
 
 const { t } = useI18n()
 
-const disks = ref(['/dev/sda', '/dev/sdb', '/dev/nvme0n1'])
+const disks = ref<string[]>([])
 const installTypes = [...INSTALL_TYPES.entries()].map(v => ({ key: v[0], i18nKey: v[1] }))
+const loading = ref(false)
 
 const form = reactive({
   disk: '',
@@ -70,18 +71,37 @@ async function checkValid() {
   return true
 }
 
+async function fetchDiskInfo() {
+  loading.value = true
+  try {
+    const { success, disks: diskList } = await window.electron.ipcRenderer.invoke('get-disk-info')
+    if (success && diskList?.length) {
+      disks.value = diskList.map(d => `/dev/${d.name}`)
+      
+      // 转换磁盘信息为分区图数据格式
+      installInfo.partInfo = diskList.flatMap(disk => {
+        return disk.partitions?.map(part => ({
+          tag: part.name,
+          size: part.size,
+          type: part.fsType || '',
+          loadPoint: part.mountpoint || ''
+        })) || []
+      })
+      
+      // 保存分区前的状态
+      installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
+    }
+  } catch (error) {
+    console.error('获取磁盘信息失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
 onActivated(() => {
   // 进入此页则必须获取磁盘信息
   if (!installInfo.partInfo?.length) {
-    // 后续修改为通过API获取，并将loadPoint设为''
-    // 当前为测试数据
-    installInfo.partInfo = [
-      {tag: 'nvme0n1p1', size: 311385129, type: 'FAT32', loadPoint: ''},
-      {tag: '空闲空间', size: 511788302991, type: '', loadPoint: ''},
-      {tag: 'nvme0n1p2', size: 311385129, type: 'FAT32', loadPoint: ''}
-    ]
-    // 保存分区前的状态
-    installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
+    fetchDiskInfo()
   }
 })
 

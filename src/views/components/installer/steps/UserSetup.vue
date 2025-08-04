@@ -64,6 +64,7 @@ const { t } = useI18n()
 
 const pwdShown = ref([false, false, false, false])
 
+const loading = ref(false)
 const formRef = ref()
 const form = reactive({
   username: '',
@@ -99,10 +100,43 @@ async function checkValid() {
   if (!await formRef.value.validate().catch(() => false)) {
     return false
   }
-  installInfo.username = form.username
-  installInfo.password = form.password
-  installInfo.adminPassword = isAdminSame.value ? form.password : form.adminPassword
-  return true
+
+  loading.value = true
+  try {
+    // 创建普通用户
+    const { success, error } = await window.electron.ipcRenderer.invoke('create-user', {
+      username: form.username,
+      password: form.password
+    })
+    
+    if (!success) {
+      throw new Error(error || '创建用户失败')
+    }
+
+    // 如果需要创建管理员且密码不同
+    if (!isAdminSame.value) {
+      const { success: adminSuccess, error: adminError } = await window.electron.ipcRenderer.invoke('create-user', {
+        username: 'admin',
+        password: form.adminPassword
+      })
+      
+      if (!adminSuccess) {
+        throw new Error(adminError || '创建管理员失败')
+      }
+    }
+
+    // 保存用户信息
+    installInfo.username = form.username
+    installInfo.password = form.password
+    installInfo.adminPassword = isAdminSame.value ? form.password : form.adminPassword
+    
+    return true
+  } catch (error) {
+    console.error('用户创建失败:', error)
+    return false
+  } finally {
+    loading.value = false
+  }
 }
 
 defineExpose({

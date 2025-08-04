@@ -1,8 +1,12 @@
-interface ElectronAPI {
+interface IpcRenderer {
   invoke: (channel: string, ...args: any[]) => Promise<any>
-  closeApp: () => void
+  send: (channel: string, ...args: any[]) => void
+  on: (channel: string, listener: (...args: any[]) => void) => void
+  removeListener: (channel: string, listener: (...args: any[]) => void) => void
 }
 
 interface Window {
-  electronAPI: ElectronAPI
+  electron: {
+    ipcRenderer: IpcRenderer
+  }
 }
