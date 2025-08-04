@@ -29,18 +29,25 @@
         <el-form-item prop="partitionType" :label="'分区方式'">
           <el-select v-model="form.partitionType">
             <el-option label="自动分区" value="auto" />
-            <el-option label="手动分区" value="manual" disabled />
+            <el-option label="手动分区" value="manual" />
           </el-select>
         </el-form-item>
       </el-form>
+    </div>
+    <div class="disk-info-sub">{{ t('install.diskInfo') }}</div>
+    <div class="disk-info-res">
+      <div class="disk-info-item">
+        <PartitionGraph :data-list="installInfo?.partInfo || []" :width-px="700" />
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { inject, reactive, ref } from 'vue'
+import { inject, onActivated, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
+import PartitionGraph from '@/views/components/installer/comp/PartitionGraph.vue'
 import { INSTALL_TYPES, INSTALL_INFO_KEY } from "@/utils/constant"
 
 const { t } = useI18n()
@@ -62,6 +69,21 @@ async function checkValid() {
   installInfo.partitionType = form.partitionType
   return true
 }
+
+onActivated(() => {
+  // 进入此页则必须获取磁盘信息
+  if (!installInfo.partInfo?.length) {
+    // 后续修改为通过API获取，并将loadPoint设为''
+    // 当前为测试数据
+    installInfo.partInfo = [
+      {tag: 'nvme0n1p1', size: 311385129, type: 'FAT32', loadPoint: ''},
+      {tag: '空闲空间', size: 511788302991, type: '', loadPoint: ''},
+      {tag: 'nvme0n1p2', size: 311385129, type: 'FAT32', loadPoint: ''}
+    ]
+    // 保存分区前的状态
+    installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
+  }
+})
 
 defineExpose({
   checkValid
@@ -104,6 +126,30 @@ defineExpose({
   }
   :deep(.el-select) {
     width: 100%;
+  }
+}
+
+.disk-info {
+  &-sub {
+    width: calc(100% - 32px);
+    line-height: 2;
+    color: #4e5865;
+  }
+  &-res {
+    margin-top: 4px;
+    width: calc(100% - 32px);
+    padding: 20px 0;
+    max-height: 260px;
+    background-color: #f4f6fa;
+    overflow-y: auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-direction: column;
+  }
+  &-item {
+    margin-top: 8px;
+    display: flex;
   }
 }
 </style>

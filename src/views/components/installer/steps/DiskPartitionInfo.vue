@@ -18,11 +18,11 @@
     <div class="disk-info-res">
       <div class="disk-info-item">
         <div class="disk-info-item-label" style="text-align: right;">{{ '当前' }}</div>
-        <PartitionGraph :total-size-gb="TEST_TOTAL" :data-list="TEST_BEFORE" />
+        <PartitionGraph :data-list="installInfo.partInfoBefore" />
       </div>
       <div class="disk-info-item">
         <div class="disk-info-item-label" style="text-align: right;">{{ '之后' }}</div>
-        <PartitionGraph :total-size-gb="TEST_TOTAL" :data-list="TEST_AFTER" />
+        <PartitionGraph :data-list="TEST_AFTER" />
       </div>
     </div>
   </div>
@@ -35,26 +35,25 @@ import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import PartitionGraph from '@/views/components/installer/comp/PartitionGraph.vue'
 import { INSTALL_TYPES, INSTALL_INFO_KEY } from '@/utils/constant'
 
-const TEST_TOTAL = 126.99
-const TEST_BEFORE = []
 const TEST_AFTER = [
-  {tag: 'FancyGL', sizeGb: 24.80, type: 'ext4'},
-  {tag: 'Swap', sizeGb: 2.19, type: 'swap'},
-  {tag: 'Swap', sizeGb: 2.19, type: 'swap'},
-  {tag: 'Swap', sizeGb: 2.19, type: 'swap'},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19},
-  {tag: 'Swap', sizeGb: 2.19}
+  {tag: 'FancyGL', size: 26628797235, type: 'ext4'},
+  {tag: 'Swap', size: 2351494594, type: 'swap'},
+  {tag: 'Swap', size: 2351494594, type: 'swap'},
+  {tag: 'Swap', size: 2351494594, type: 'swap'},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: 'Swap', size: 2351494594},
+  {tag: '空闲空间', size: 79886391705}
 ]
 
 const { t } = useI18n()
