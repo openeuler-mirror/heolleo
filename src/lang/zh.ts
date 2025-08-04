@@ -51,8 +51,41 @@ export default {
       Atlantic: '大西洋地区',
       Australia: '澳洲',
       Europe: '欧洲',
-      Indian: '印度地区',
+      Indian: '印度洋地区',
       Pacific: '大洋洲'
+    },
+    Africa: {
+      Abidjan: '阿比让',
+      Addis_Ababa: '亚的斯亚贝巴',
+      Algiers: '阿尔及尔',
+      Cairo: '开罗',
+      Johannesburg: '约翰内斯堡',
+      Kinshasa: '金沙萨',
+      Lagos: '拉各斯',
+      Lubumbashi: '卢本巴希',
+      Nairobi: '内罗毕,',
+      Nouakchott: '努瓦克肖特'
+    },
+    America: {
+      Anchorage: '安克雷奇',
+      Buenos_Aires: '布宜诺斯艾利斯',
+      Chicago: '芝加哥',
+      Denver: '丹佛',
+      Havana: '哈瓦那',
+      Los_Angeles: '洛杉矶',
+      Manaus: '马瑙斯',
+      Mexico_City: '墨西哥城',
+      New_York: '纽约',
+      Phoenix: '凤凰城',
+      Sao_Paulo: '圣保罗',
+      St_Johns: '圣约翰斯'
+    },
+    Antarctica: {
+      McMurdo: '麦克默多站',
+      Rothera: '长城站'
+    },
+    Arctic: {
+      Longyearbyen: '朗伊尔城'
     },
     Asia: {
       Aden: '亚丁',
@@ -138,6 +171,18 @@ export default {
       Yekaterinburg: '叶卡捷琳堡',
       Yerevan: '埃里温'
     },
+    Atlantic: {
+      Azores: '亚速尔群岛',
+      Cape_Verde: '佛得角',
+      Faroe: '法罗群岛',
+      South_Georgia: '南乔治亚岛',
+    },
+    Australia: {
+      Eucla: '尤克拉',
+      Lord_Howe: '豪勋爵岛',
+      Perth: '珀斯',
+      Sydney: '悉尼',
+    },
     Europe: {
       Amsterdam: '阿姆斯特丹',
       Andorra: '安道尔',
@@ -197,6 +242,20 @@ export default {
       Warsaw: '华沙',
       Zagreb: '萨格勒布',
       Zurich: '苏黎世'
+    },
+    Indian: {
+      Chagos: '查戈斯群岛',
+      Christmas: '圣诞岛',
+      Mahe: '马埃岛',
+      Maldives: '马尔代夫'
+    },
+    Pacific: {
+      Apia: '阿皮亚',
+      Auckland: '奥克兰',
+      Chatham: '查塔姆群岛',
+      Honolulu: '火奴鲁鲁',
+      Kiritimati: '基里巴斯',
+      Tahiti: '塔希提岛'
     }
   }
 }

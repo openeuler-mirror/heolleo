@@ -54,6 +54,39 @@ export default {
       Indian: 'Indian',
       Pacific: 'Pacific'
     },
+    Africa: {
+      Abidjan: 'Abidjan',
+      Addis_Ababa: 'Addis Ababa',
+      Algiers: 'Algiers',
+      Cairo: 'Cairo',
+      Johannesburg: 'Johannesburg',
+      Kinshasa: 'Kinshasa',
+      Lagos: 'Lagos',
+      Lubumbashi: 'Lubumbashi',
+      Nairobi: 'Nairobi,',
+      Nouakchott: 'Nouakchott'
+    },
+    America: {
+      Anchorage: 'Anchorage',
+      Buenos_Aires: 'Buenos Aires',
+      Chicago: 'Chicago',
+      Denver: 'Denver',
+      Havana: 'Havana',
+      Los_Angeles: 'Los Angeles',
+      Manaus: 'Manaus',
+      Mexico_City: 'Mexico City',
+      New_York: 'New York',
+      Phoenix: 'Phoenix',
+      Sao_Paulo: 'Sao Paulo',
+      St_Johns: 'St Johns'
+    },
+    Antarctica: {
+      McMurdo: 'McMurdo',
+      Rothera: 'Rothera'
+    },
+    Arctic: {
+      Longyearbyen: 'Longyearbyen'
+    },
     Asia: {
       Aden: 'Aden',
       Almaty: 'Almaty',
@@ -138,6 +171,18 @@ export default {
       Yekaterinburg: 'Yekaterinburg',
       Yerevan: 'Yerevan'
     },
+    Atlantic: {
+      Azores: 'Azores',
+      Cape_Verde: 'Cape Verde',
+      Faroe: 'Faroe',
+      South_Georgia: 'South Georgia',
+    },
+    Australia: {
+      Eucla: 'Eucla',
+      Lord_Howe: 'Lord Howe',
+      Perth: 'Perth',
+      Sydney: 'Sydney',
+    },
     Europe: {
       Amsterdam: 'Amsterdam',
       Andorra: 'Andorra',
@@ -156,7 +201,7 @@ export default {
       Gibraltar: 'Gibraltar',
       Guernsey: 'Guernsey',
       Helsinki: 'Helsinki',
-      Isle_of_Man: 'Isle_of_Man',
+      Isle_of_Man: 'Isle of Man',
       Istanbul: 'Istanbul',
       Jersey: 'Jersey',
       Kaliningrad: 'Kaliningrad',
@@ -179,7 +224,7 @@ export default {
       Riga: 'Riga',
       Rome: 'Rome',
       Samara: 'Samara',
-      San_Marino: 'San_Marino',
+      San_Marino: 'San Marino',
       Sarajevo: 'Sarajevo',
       Saratov: 'Saratov',
       Simferopol: 'Simferopol',
@@ -197,6 +242,20 @@ export default {
       Warsaw: 'Warsaw',
       Zagreb: 'Zagreb',
       Zurich: 'Zurich'
+    },
+    Indian: {
+      Chagos: 'Chagos',
+      Christmas: 'Christmas',
+      Mahe: 'Mahe',
+      Maldives: 'Maldives'
+    },
+    Pacific: {
+      Apia: 'Apia',
+      Auckland: 'Auckland',
+      Chatham: 'Chatham',
+      Honolulu: 'Honolulu',
+      Kiritimati: 'Kiritimati',
+      Tahiti: 'Tahiti'
     }
   }
 }

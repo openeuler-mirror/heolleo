@@ -1,8 +1,37 @@
 export const TZ_AREA_KEY_MAP: Readonly<Map<string, string[]>> = new Map([
-  ['Africa', []],
-  ['America', []],
-  ['Antarctica', []],
-  ['Arctic', []],
+  ['Africa', [
+    'Africa/Abidjan',
+    'Africa/Addis_Ababa',
+    'Africa/Algiers',
+    'Africa/Cairo',
+    'Africa/Johannesburg',
+    'Africa/Kinshasa',
+    'Africa/Lagos',
+    'Africa/Lubumbashi',
+    'Africa/Nairobi',
+    'Africa/Nouakchott'
+  ]],
+  ['America', [
+    'America/Anchorage',
+    'America/Buenos_Aires',
+    'America/Chicago',
+    'America/Denver',
+    'America/Havana',
+    'America/Los_Angeles',
+    'America/Manaus',
+    'America/Mexico_City',
+    'America/New_York',
+    'America/Phoenix',
+    'America/Sao_Paulo',
+    'America/St_Johns',
+  ]],
+  ['Antarctica', [
+    'Antarctica/McMurdo',
+    'Antarctica/Rothera'
+  ]],
+  ['Arctic', [
+    'Arctic/Longyearbyen'
+  ]],
   ['Asia', [
     'Asia/Aden',
     'Asia/Almaty',
@@ -87,8 +116,18 @@ export const TZ_AREA_KEY_MAP: Readonly<Map<string, string[]>> = new Map([
     'Asia/Yekaterinburg',
     'Asia/Yerevan'
   ]],
-  ['Atlantic', []],
-  ['Australia', []],
+  ['Atlantic', [
+    'Atlantic/Azores',
+    'Atlantic/Cape_Verde',
+    'Atlantic/Faroe',
+    'Atlantic/South_Georgia'
+  ]],
+  ['Australia', [
+    'Australia/Eucla',
+    'Australia/Lord_Howe',
+    'Australia/Perth',
+    'Australia/Sydney'
+  ]],
   ['Europe', [
     'Europe/Amsterdam',
     'Europe/Andorra',
@@ -149,6 +188,18 @@ export const TZ_AREA_KEY_MAP: Readonly<Map<string, string[]>> = new Map([
     'Europe/Zagreb',
     'Europe/Zurich'
   ]],
-  ['Indian', []],
-  ['Pacific', []]
+  ['Indian', [
+    'Indian/Chagos',
+    'Indian/Christmas',
+    'Indian/Mahe',
+    'Indian/Maldives'
+]],
+  ['Pacific', [
+    'Pacific/Apia',
+    'Pacific/Auckland',
+    'Pacific/Chatham',
+    'Pacific/Honolulu',
+    'Pacific/Kiritimati',
+    'Pacific/Tahiti'
+  ]]
 ]);
