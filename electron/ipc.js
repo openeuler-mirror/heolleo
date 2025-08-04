@@ -60,7 +60,29 @@ function registerIpcListeners() {
       return { success: false, error: error.message }
     }
   })
+
+  // 获取磁盘信息
+  ipcMain.handle('get-disk-info', () => {
+    try {
+      const output = execSync('lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT').toString()
+      const { blockdevices } = JSON.parse(output)
+      const disks = blockdevices
+        .filter(device => device.type === 'disk')
+        .map(device => ({
+          name: device.name,
+          size: device.size,
+          type: device.type,
+          mountpoint: device.mountpoint || null
+        }))
+      console.log(disks)
+      return { success: true, disks }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
 }
+
 
 module.exports = {
   registerIpcListeners

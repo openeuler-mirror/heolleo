@@ -1,6 +1,6 @@
 <template>
-  <div class="p-graph">
-    <div class="p-graph-bar">
+  <div class="p-graph" :style="{width: `${props.widthPx || 628}px`}">
+    <div class="p-graph-bar" :style="{height: `${props.heightPx || 16}px`}">
       <div
         class="p-graph-piece"
         v-for="(item, idx) in sortedList"
@@ -8,7 +8,7 @@
         :style="{ width: item.percentStr, backgroundColor: item.color }"
       />
     </div>
-    <div class="p-graph-legend">
+    <div class="p-graph-legend" v-if="!props.noLegend">
       <div
         class="p-graph-unit"
         v-for="(item, idx) in sortedList"
@@ -26,25 +26,17 @@
 <script lang="ts" setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatSize } from '@/utils/utils'
+import { DISK_OTHERS_COLOR, DISK_PART_PALETTE, PartInfo } from '@/utils/constant'
 
 const { t } = useI18n()
 
-const COLOR_LIST = [
-  '#0077FF',
-  '#2DB47C',
-  '#EC4F83',
-  '#3DB6FC',
-  '#6D47F5',
-  '#3DCFD4',
-  '#BD45E8',
-  '#81BA06',
-  '#EBAF00',
-  '#F97611',
-]
-
 const props = defineProps<{
-  totalSizeGb: number;
-  dataList: Array<{ tag: string, sizeGb: number, type?: string }>;
+  // totalSize: number; // 预计不需要传入总空间大小，空闲空间由API提供，总大小由汇总得到
+  dataList: Array<PartInfo>;
+  widthPx?: number;
+  heightPx?: number;
+  noLegend?: boolean;
 }>()
 
 const sortedList = computed(() => {
@@ -52,48 +44,55 @@ const sortedList = computed(() => {
   if (Array.isArray(props.dataList)) {
     dList = props.dataList
   }
-  let total = dList.reduce((pv, v) => pv + v.sizeGb, 0)
-  let blank = 0
-  if (props.totalSizeGb && props.totalSizeGb > total) {
-    blank = props.totalSizeGb - total
-    total = props.totalSizeGb
-  }
-  const list = dList.toSorted((v1, v2) => v2.sizeGb - v1.sizeGb)
+  let total = dList.reduce((pv, v) => pv + v.size, 0)
+  // 若API不提供空闲空间，由此根据传入的total计算空闲空间
+  // let blank = 0
+  // if (props.totalSize && props.totalSize > total) {
+  //   blank = props.totalSize - total
+  //   total = props.totalSize
+  // }
+  const list = dList.toSorted((v1, v2) => {
+    if (v1.size === v2.size) {
+      return v1.tag > v2.tag ? 1 : -1
+    }
+    return v2.size - v1.size
+  })
   const res = []
-  for (let i = 0; i < COLOR_LIST.length; i++) {
+  for (let i = 0; i < DISK_PART_PALETTE.length; i++) {
     if (i > list.length - 1) {
       break
     }
     res.push({
       isTagI18n: false,
       tag: list[i].tag,
-      sizeStr: `${list[i].sizeGb.toFixed(2)} GiB`,
-      percentStr: `${(list[i].sizeGb / total * 100).toFixed(2)}%`,
-      color: COLOR_LIST[i],
+      sizeStr: formatSize(list[i].size, true),
+      percentStr: `${(list[i].size / total * 100).toFixed(2)}%`,
+      color: DISK_PART_PALETTE[i],
       type: list[i].type || ''
     })
   }
-  if (list.length > COLOR_LIST.length) {
-    const otherSize = list.slice(10).reduce((pv, v) => pv + v.sizeGb, 0)
+  if (list.length > DISK_PART_PALETTE.length) {
+    const otherSize = list.slice(10).reduce((pv, v) => pv + v.size, 0)
     res.push({
       isTagI18n: true,
       tag: 'common.others',
-      sizeStr: `${otherSize.toFixed(2)} GiB`,
+      sizeStr: formatSize(otherSize, true),
       percentStr: `${(otherSize / total * 100).toFixed(2)}%`,
-      color: '#502092',
+      color: DISK_OTHERS_COLOR,
       type: ''
     })
   }
-  if (blank / total > 0.0001) {
-    res.push({
-      isTagI18n: true,
-      tag: 'common.free',
-      sizeStr: `${blank.toFixed(2)} GiB`,
-      percentStr: `${(blank / total * 100).toFixed(2)}%`,
-      color: '#8D98AA',
-      type: ''
-    })
-  }
+  // 若API不提供空闲空间，由此根据传入的total计算空闲空间
+  // if (blank / total > 0.0001) {
+  //   res.push({
+  //     isTagI18n: true,
+  //     tag: 'common.free',
+  //     sizeStr: formatSize(blank, true),
+  //     percentStr: `${(blank / total * 100).toFixed(2)}%`,
+  //     color: '#8D98AA',
+  //     type: ''
+  //   })
+  // }
   return res;
 })
 </script>
