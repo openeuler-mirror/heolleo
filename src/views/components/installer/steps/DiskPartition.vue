@@ -16,7 +16,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item prop="installType" :label="'安装方式'">
+        <el-form-item prop="installType" :label="t('install.install_type')">
           <el-select v-model="form.installType">
             <el-option
               v-for="item in installTypes"
@@ -26,11 +26,14 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item prop="partitionType" :label="'分区方式'">
+        <el-form-item prop="partitionType" :label="t('install.partition_type')">
           <el-select v-model="form.partitionType">
-            <el-option label="自动分区" value="auto" />
-            <el-option label="手动分区" value="manual" />
+            <el-option :label="t('install.auto_partition')" value="auto" />
+            <el-option :label="t('install.manual_partition')" value="manual" />
           </el-select>
+        </el-form-item>
+        <el-form-item v-if="form.partitionType === 'auto'" prop="useLvm" :label="t('install.use_lvm')">
+          <el-switch v-model="form.useLvm" />
         </el-form-item>
       </el-form>
     </div>
@@ -44,11 +47,12 @@
 </template>
 
 <script setup lang="ts">
+/// &lt;reference types="@/types/electron.d.ts" /&gt;
 import { inject, onActivated, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import PartitionGraph from '@/views/components/installer/comp/PartitionGraph.vue'
-import { INSTALL_TYPES, INSTALL_INFO_KEY } from "@/utils/constant"
+import { INSTALL_TYPES, INSTALL_INFO_KEY } from "@/utils/constant.ts"
 
 const { t } = useI18n()
 
@@ -59,34 +63,50 @@ const loading = ref(false)
 const form = reactive({
   disk: '',
   installType: 'min',
-  partitionType: 'auto'
+  partitionType: 'auto',
+  useLvm: true
 })
 
-const installInfo = inject(INSTALL_INFO_KEY, reactive({}))
+import { InstallInfo } from '@/utils/constant.ts'
+
+const installInfo = inject<InstallInfo>(INSTALL_INFO_KEY)!
 async function checkValid() {
   // 待添加表单验证
   installInfo.disk = form.disk
   installInfo.installType = form.installType
   installInfo.partitionType = form.partitionType
+  installInfo.useLvm = form.useLvm
+  
+  const selectedDisk = fullDiskInfo.value.find(d => `/dev/${d.name}` === form.disk)
+  if (selectedDisk) {
+    installInfo.diskSize = selectedDisk.size
+    installInfo.sector_size = selectedDisk.sector_size
+  }
+  
   return true
 }
+
+const fullDiskInfo = ref<any[]>([])
 
 async function fetchDiskInfo() {
   loading.value = true
   try {
     const { success, disks: diskList } = await window.electron.ipcRenderer.invoke('get-disk-info')
     if (success && diskList?.length) {
+      fullDiskInfo.value = diskList
       disks.value = diskList.map(d => `/dev/${d.name}`)
+      if (disks.value.length > 0) {
+        form.disk = disks.value[0]
+      }
       
       // 转换磁盘信息为分区图数据格式
-      installInfo.partInfo = diskList.flatMap(disk => {
-        return disk.partitions?.map(part => ({
-          tag: part.name,
-          size: part.size,
-          type: part.fsType || '',
-          loadPoint: part.mountpoint || ''
+      installInfo.partInfo = diskList.flatMap(disk =>
+        disk.partitions?.map(part => ({
+          ...part,
+          tag: part.name, // Used for graph label
+          loadPoint: part.mountpoint || '' // Used for graph
         })) || []
-      })
+      );
       
       // 保存分区前的状态
       installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))

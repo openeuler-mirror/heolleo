@@ -1,18 +1,30 @@
 import {InjectionKey, Reactive} from 'vue';
 
 export interface PartInfo {
-  size: number;
-  tag: string;
-  type: string;
-  loadPoint: string;
+  name: string;
+  dev_path: string;
+  size: string; // Keep as string as it comes from lsblk
+  fs_type: string | null;
+  mountpoint: string | null;
+  uuid: string | null;
+  flags: string[];
+  start: number | null;
+  type: string; // 'primary', etc.
+  status: string; // 'existing'
+  tag: string; // for graph color and label
+  loadPoint: string; // for graph
 }
 export interface InstallInfo {
   timezone: string;
   disk: string;
+  diskSize: number; // in bytes
+  sector_size: number; // in bytes
   installType: string;
   partitionType: string;
   partInfo: PartInfo[];
   partInfoBefore: PartInfo[];
+  useLvm: boolean;
+  configPath: string;
 }
 
 export const INSTALL_TYPES: Readonly<Map<string, string>> = new Map([
