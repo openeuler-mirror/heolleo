@@ -2,7 +2,7 @@
   <div class="wrapper">
     <div class="container">
       <KeepAlive>
-        <component ref="stepCompRef" :is="currentStep" @next="nextStep" @prev="prevStep" @finish="onInstallFin" />
+        <component ref="stepCompRef" :is="currentStep" @next="nextStep" @prev="prevStep" @finish="onInstallFin" @failed="onInstallFailed" />
       </KeepAlive>
     </div>
     <div class="nav">
@@ -51,7 +51,7 @@
           :loading="isInstalling"
           @click="finishInstall"
         >
-          {{ isInstalling ? '安装中' : '完成' }}
+          {{ isInstalling ? '安装中' : (installFailed ? '关闭' : '完成') }}
         </el-button>
       </div>
     </div>
@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, provide, reactive, ref, shallowRef } from 'vue'
+import { computed, provide, reactive, ref, shallowRef, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { IconX } from '@computing/opendesign-icons'
 import Welcome from './steps/Welcome.vue'
@@ -67,14 +67,17 @@ import BasicSetup from './steps/BasicSetup.vue'
 import DiskPartition from './steps/DiskPartition.vue'
 import DiskPartitionManual from './steps/DiskPartitionManual.vue'
 import DiskPartitionInfo from './steps/DiskPartitionInfo.vue'
+import ConfigPreview from './steps/ConfigPreview.vue'
 import InstallProgress from './steps/InstallProgress.vue'
-import { INSTALL_INFO_KEY } from '@/utils/constant'
+import { INSTALL_INFO_KEY } from '@/utils/constant.ts'
+import { ConfigGenerator } from '@/services/ConfigGenerator.ts'
 
-const { t } = useI18n()
+
+const { t, locale } = useI18n()
 
 const IDX_DISK_PART = 2
-const IDX_SHOW_INSTALL = 4
-const IDX_INSTALLING = 5
+const IDX_SHOW_INSTALL = 5
+const IDX_INSTALLING = 6
 
 const steps = [
   shallowRef(Welcome),
@@ -82,6 +85,7 @@ const steps = [
   shallowRef(DiskPartition),
   shallowRef(DiskPartitionManual), // 手动分区选了才会进
   shallowRef(DiskPartitionInfo),
+  shallowRef(ConfigPreview), // 配置预览
   shallowRef(InstallProgress)
 ];
 
@@ -89,29 +93,47 @@ const stepCompRef = ref();
 const currentStepIndex = ref(0)
 const currentStep = computed(() => steps[currentStepIndex.value].value)
 const isInstalling = ref(false)
+const installFailed = ref(false)
 
 const installInfo = reactive({
   timezone: '',
   disk: '',
+  diskSize: 0,
   installType: '',
   partitionType: '',
   partInfo: [],
-  partInfoBefore: []
+  partInfoBefore: [],
+  useLvm: false,
+  sector_size: 512,
+  configPath: ''
 })
 provide(INSTALL_INFO_KEY, installInfo)
 
 async function nextStep() {
-  if (!await stepCompRef.value?.checkValid()) {
-    return
+  // 确保组件更新完成
+  await nextTick()
+  
+  // 防御性检查：确保组件引用和方法存在
+  if (stepCompRef.value && typeof stepCompRef.value.checkValid === 'function') {
+    if (!await stepCompRef.value.checkValid()) {
+      return
+    }
+  } else {
+    console.warn('Skipping validation for step', currentStepIndex.value)
   }
+  
   if (currentStepIndex.value === IDX_DISK_PART && installInfo.partitionType === 'auto') {
     // 自动分区则跳过下一步
     currentStepIndex.value += 2
     return
   }
+  
   if (currentStepIndex.value < steps.length - 1) {
     currentStepIndex.value++
   }
+  
+  // 确保组件引用更新
+  await nextTick()
 }
 
 function prevStep() {
@@ -128,6 +150,21 @@ function prevStep() {
 async function startInstall() {
   isInstalling.value = true
   try {
+    const config = ConfigGenerator.generateConfig(installInfo, locale.value)
+    
+    // 保存配置文件
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const configPath = `/tmp/archinstall_config_${timestamp}.json`
+    installInfo.configPath = configPath
+    
+    try {
+      await ConfigGenerator.saveConfigToFile(config, configPath)
+    } catch (saveError) {
+      console.error('Failed to save config file:', saveError)
+      // 降级到浏览器下载
+      ConfigGenerator.exportConfig(config, `archinstall_config_${timestamp}.json`)
+    }
+    
     // 执行安装逻辑
     // 这里应该调用installService中的方法
     await new Promise(resolve => setTimeout(resolve, 1000)) // 模拟安装
@@ -142,6 +179,11 @@ async function startInstall() {
 
 function onInstallFin() {
   isInstalling.value = false
+}
+
+function onInstallFailed() {
+  isInstalling.value = false
+  installFailed.value = true
 }
 
 function finishInstall() {

@@ -8,3 +8,8 @@ contextBridge.exposeInMainWorld('electron', {
     removeListener: (channel, listener) => ipcRenderer.removeListener(channel, listener)
   }
 })
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  closeApp: () => ipcRenderer.send('close-app'),
+  saveConfigFile: (filepath, content) => ipcRenderer.invoke('save-config-file', { filepath, content })
+})
