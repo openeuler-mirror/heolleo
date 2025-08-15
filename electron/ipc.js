@@ -147,25 +147,32 @@ function registerIpcListeners() {
   })
 
   // 安装系统
-  ipcMain.handle('install-system', (event, { rootPath, packages }) => {
-    try {
-      // 检查并创建rootPath目录
-      if (!fs.existsSync(rootPath)) {
-        fs.mkdirSync(rootPath, { recursive: true })
-      }
-      // 确保yum.repos.d目录存在
-      execSync(`mkdir -p ${rootPath}/etc/yum.repos.d`)
-      
-      // 复制镜像源配置
-      execSync(`cp -f /etc/yum.repos.d/openEuler.repo ${rootPath}/etc/yum.repos.d/`)
-      
-      // 安装基本系统
-      execSync(`dnf --installroot=${rootPath} install --nogpgcheck --assumeyes --setopt=sslverify=0 ${packages.join(' ')}`)
-      
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
+  ipcMain.handle('install-system', async (event, configPath) => {
+    const webContents = event.sender
+    const installCommand = `sudo python -m archinstall --config ${configPath} --silent`
+    const installProcess = exec(installCommand);
+
+    installProcess.stdout.on('data', (data) => {
+      const log = data.toString()
+      console.log('Install stdout:', log)
+      webContents.send('install-log', log)
+    });
+
+    installProcess.stderr.on('data', (data) => {
+      const log = data.toString()
+      console.error('Install stderr:', log)
+      webContents.send('install-log', log)
+    });
+
+    return new Promise((resolve) => {
+      installProcess.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true })
+        } else {
+          resolve({ success: false, error: `Installation failed with code ${code}` })
+        }
+      });
+    })
   })
 
   // 挂载镜像
@@ -234,6 +241,23 @@ function registerIpcListeners() {
     }
   })
 
+  // 保存配置文件
+  ipcMain.handle('save-config-file', async (event, { filepath, content }) => {
+    try {
+      // 确保目录存在
+      const dir = path.dirname(filepath)
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      
+      fs.writeFileSync(filepath, content, 'utf8')
+      return { success: true }
+    } catch (error) {
+      console.error('Failed to save config file:', error)
+      return { success: false, error: error.message }
+    }
+  })
+
   // 获取所有磁盘信息
   ipcMain.handle('get-disk-info', () => {
     try {
@@ -244,24 +268,84 @@ function registerIpcListeners() {
         throw new Error('lsblk command not found')
       }
 
-      const output = execSync('lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE').toString()
-      const { blockdevices } = JSON.parse(output)
-      
+      const lsblkOutput = execSync('lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,UUID,PATH').toString();
+      const { blockdevices } = JSON.parse(lsblkOutput);
+
       const disks = blockdevices
-        .filter(device => device.type === 'disk')
-        .map(disk => ({
-          name: disk.name,
-          size: disk.size,
-          type: disk.type,
-          mountpoint: disk.mountpoint || null,
-          partitions: disk.children?.map(part => ({
-            name: part.name,
-            size: part.size,
-            type: part.type,
-            fsType: part.fstype || null,
-            mountpoint: part.mountpoint || null
-          })) || []
-        }))
+        .filter(device => device.type === 'disk' && device.path)
+        .map(disk => {
+          let partedOutput = '';
+          let sectorSize = 512; // Default sector size
+          try {
+            partedOutput = execSync(`parted -s ${disk.path} unit B print`).toString();
+            const sectorSizeOutput = execSync(`blockdev --getss ${disk.path}`).toString().trim();
+            if (sectorSizeOutput && !isNaN(parseInt(sectorSizeOutput, 10))) {
+              sectorSize = parseInt(sectorSizeOutput, 10);
+            }
+          } catch (e) {
+            console.error(`Could not run parted or blockdev on ${disk.path}: ${e}`);
+            // If parted fails, we can still return the lsblk info
+          }
+
+          const partitions = disk.children?.map(part => {
+            const partDetails = {
+              name: part.name,
+              dev_path: part.path,
+              size: part.size,
+              fs_type: part.fstype || null,
+              mountpoint: part.mountpoint || null,
+              uuid: part.uuid || null,
+              flags: [],
+              start: null,
+              type: 'primary', // Default, can be refined by parted
+              status: 'existing' // Default
+            };
+
+            if (partedOutput) {
+              const lines = partedOutput.split('\n');
+              const partLine = lines.find(line => {
+                const cols = line.trim().split(/\s+/);
+                // Match by partition number, assuming name is like 'sda1', 'nvme0n1p1'
+                const partNumMatch = part.name.match(/\d+$/);
+                if (partNumMatch && cols[0] === partNumMatch[0]) {
+                  return true;
+                }
+                return false;
+              });
+
+              if (partLine) {
+                const cols = partLine.trim().split(/\s+/);
+                partDetails.start = parseInt(cols[1].replace('B', ''), 10);
+                partDetails.type = cols[3]; // e.g., primary
+                // Flags are in the last column, comma-separated
+                if (cols.length > 5 && cols[5]) {
+                   partDetails.flags = cols[5].split(',').map(f => f.trim()).filter(f => f);
+                }
+              }
+            }
+            
+            // A simple way to determine boot/esp flag if parted fails
+            if (!partedOutput && (part.mountpoint === '/boot/efi' || part.fstype === 'vfat')) {
+                partDetails.flags.push('boot', 'esp');
+            }
+            if (part.mountpoint === '/boot') {
+                partDetails.flags.push('bls_boot');
+            }
+
+
+            return partDetails;
+          }) || [];
+
+          return {
+            name: disk.name,
+            device: disk.path,
+            size: disk.size,
+            type: disk.type,
+            mountpoint: disk.mountpoint || null,
+            sector_size: sectorSize,
+            partitions: partitions.filter(p => p) // Filter out nulls from failed parted calls
+          };
+        });
 
       console.log('Disks info:', disks)
       return { success: true, disks }

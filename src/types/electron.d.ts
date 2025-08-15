@@ -5,8 +5,14 @@ interface IpcRenderer {
   removeListener: (channel: string, listener: (...args: any[]) => void) => void
 }
 
+export interface ElectronAPI {
+  closeApp: () => void
+  saveConfigFile: (filepath: string, content: string) => Promise<void>
+}
+
 interface Window {
   electron: {
     ipcRenderer: IpcRenderer
   }
+  electronAPI?: ElectronAPI
 }

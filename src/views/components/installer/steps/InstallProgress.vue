@@ -5,19 +5,29 @@
       <StepBar :step-num="3" />
     </div>
     <div class="install-progress-content">
-      <el-carousel :interval="4000" arrow="always" indicator-position="none">
-        <el-carousel-item v-for="idx in 3" :key="idx">
-          <el-empty :description="`pic-${idx}`"></el-empty>
-        </el-carousel-item>
-      </el-carousel>
+      <div v-if="!showLog" class="carousel-wrapper">
+        <el-carousel :interval="4000" arrow="always" indicator-position="none">
+          <el-carousel-item v-for="idx in 3" :key="idx">
+            <img :src="`/slides/slide${idx}.png`" style="width: 100%; height: 100%; object-fit: cover;" />
+          </el-carousel-item>
+        </el-carousel>
+      </div>
+      <div v-else ref="logViewer" class="log-viewer">
+        <pre>{{ logs.join('\n') }}</pre>
+      </div>
     </div>
     <div class="install-progress-percent">
-      <el-progress
-        class="progress-comp"
-        :percentage="progress"
-        :stroke-width="8"
-        :status="error ? 'exception' : undefined"
-      />
+      <div class="progress-wrapper">
+        <el-progress
+          class="progress-comp"
+          :percentage="progress"
+          :stroke-width="8"
+          :status="installStatus === 'failed' ? 'exception' : undefined"
+        />
+        <el-icon v-if="logs.length > 0" @click="showLog = !showLog" class="log-icon" size="20">
+          <IconFileText />
+        </el-icon>
+      </div>
       <div v-if="error" class="error-message">
         {{ error }}
       </div>
@@ -26,57 +36,72 @@
 </template>
 
 <script setup lang="ts">
-import {inject, ref, onMounted} from 'vue'
-import { INSTALL_INFO_KEY } from "@/utils/constant"
+import { inject, ref, onMounted, reactive, nextTick } from 'vue'
+import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant.ts'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
+import { IconFileText } from '@computing/opendesign-icons'
 
-const emit = defineEmits(['finish'])
+const emit = defineEmits(['finish', 'failed'])
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const progress = ref(0)
-const installInfo = inject(INSTALL_INFO_KEY, reactive({}))
+const installInfo = inject<InstallInfo>(INSTALL_INFO_KEY, reactive({} as InstallInfo))
 const error = ref('')
+const installStatus = ref<'installing' | 'success' | 'failed'>('installing')
+const showLog = ref(false)
+const logs = ref<string[]>([])
+const logViewer = ref<HTMLElement | null>(null)
 
-async function reqProgress() {
+async function install() {
+  const listener = (event, log) => {
+    logs.value.push(log)
+    nextTick(() => {
+      if (logViewer.value) {
+        logViewer.value.scrollTop = logViewer.value.scrollHeight
+      }
+    })
+    if (log.includes('Starting installation...')) {
+      progress.value = 20
+    } else if (log.includes("installing packages ['base', 'base-devel', 'linux-firmware', 'linux', 'microcode_ctl']")) {
+      progress.value = 30
+    } else if (log.includes('Enabling periodic TRIM')) {
+      progress.value = 40
+    } else if (log.includes('Setting up swap on zram')) {
+      progress.value = 50
+    } else if (log.includes('Adding bootloader Systemd-boot')) {
+      progress.value = 60
+    } else if (log.includes('Activating systemd-timesyncd for time synchronization')) {
+      progress.value = 80
+    } else if (log.includes('Updating /mnt/etc/fstab')) {
+      progress.value = 90
+    } else if (log.includes('Installation completed without any errors')) {
+      progress.value = 100
+      installStatus.value = 'success'
+      emit('finish')
+      window.electron.ipcRenderer.removeListener('install-log', listener)
+    }
+  }
+
+  window.electron.ipcRenderer.on('install-log', listener)
+
   try {
-    // 阶段1: 分区磁盘 (20%)
-    const { success: partitionSuccess } = await window.electron.ipcRenderer.invoke('partition-disk', {
-      disk: installInfo.disk,
-      bootMode: installInfo.bootMode
-    })
-    if (!partitionSuccess) throw new Error('磁盘分区失败')
-    progress.value = 20
-
-    // 阶段2: 安装系统 (20% -> 70%)
-    const { success: installSuccess } = await window.electron.ipcRenderer.invoke('install-system', {
-      rootPath: '/mnt/install_system',
-      packages: ['@base', 'grub2', 'kernel']
-    })
-    if (!installSuccess) throw new Error('系统安装失败')
-    progress.value = 70
-
-    // 阶段3: 配置GRUB (70% -> 90%)
-    const { success: grubSuccess } = await window.electron.ipcRenderer.invoke('configure-grub', {
-      disk: installInfo.disk,
-      bootMode: installInfo.bootMode,
-      rootPath: '/mnt/install_system'
-    })
-    if (!grubSuccess) throw new Error('GRUB配置失败')
-    progress.value = 90
-
-    // 阶段4: 完成 (90% -> 100%)
-    progress.value = 100
-    emit('finish')
-  } catch (err) {
-    error.value = err.message
+    const { success } = await window.electron.ipcRenderer.invoke('install-system', installInfo.configPath)
+    if (!success) {
+      throw new Error('安装失败')
+    }
+  } catch (err: any) {
+    error.value = (err as Error).message
+    installStatus.value = 'failed'
+    emit('failed')
     console.error('安装失败:', err)
+    window.electron.ipcRenderer.removeListener('install-log', listener)
   }
 }
 
 onMounted(() => {
-  reqProgress()
+  install()
 })
 </script>
 
@@ -109,11 +134,57 @@ onMounted(() => {
     width: calc(100% - 64px);
     height: 300px;
     background-color: #dfe5ef;
+    .carousel-wrapper,
+    .log-viewer {
+      width: 100%;
+      height: 100%;
+    }
+    .log-viewer {
+      padding: 8px;
+      border-radius: 4px;
+      overflow-y: auto;
+      background-color: #000;
+      color: #fff;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      box-sizing: border-box;
+      text-align: left;
+      &::-webkit-scrollbar {
+        width: 8px;
+      }
+      &::-webkit-scrollbar-thumb {
+        background-color: #4c4c4c;
+        border-radius: 4px;
+      }
+      &::-webkit-scrollbar-track {
+        background-color: #2c2c2c;
+      }
+      pre {
+        margin: 0;
+      }
+    }
   }
 
   &-percent {
     width: calc(100% - 64px);
     margin-top: 24px;
+  }
+}
+.progress-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.progress-comp {
+  flex-grow: 1;
+}
+.log-icon {
+  cursor: pointer;
+  color: #409eff;
+  &:hover {
+    color: #79bbff;
   }
 }
 :deep(.progress-comp) {
