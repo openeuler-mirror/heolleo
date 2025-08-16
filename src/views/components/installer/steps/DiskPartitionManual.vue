@@ -23,16 +23,16 @@
         </el-table-column>
         <el-table-column label="文件系统" property="type" min-width="15%" />
         <el-table-column label="挂载点" property="loadPoint" min-width="25%" />
-        <el-table-column label="大小" property="size" min-width="15%" />
+        <el-table-column label="大小" property="sizeStr" min-width="15%" />
         <el-table-column label="操作" min-width="15%">
           <template #default="{ row }">
-            <el-button v-if="row.type" text type="primary" @click="editRow(row)">
+            <el-button v-if="row.type" text type="primary" @click="partitionDialogRef?.openDialog(row, true)">
               {{ t('common.edit') }}
             </el-button>
             <el-button v-if="row.type" text type="primary" @click="deleteRow(row)">
               {{ t('common.delete') }}
             </el-button>
-            <el-button v-if="!row.type" text type="primary" @click="createRow(row)">
+            <el-button v-if="!row.type" text type="primary" @click="partitionDialogRef?.openDialog(row)">
               {{ t('common.create') }}
             </el-button>
           </template>
@@ -40,22 +40,25 @@
       </el-table>
     </div>
   </div>
+  <PartitionDialog ref="partitionDialogRef" />
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onActivated, reactive, ref } from 'vue'
+import { computed, inject, onActivated, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import PartitionGraph from '@/views/components/installer/comp/PartitionGraph.vue'
-import { INSTALL_INFO_KEY } from '@/utils/constant'
+import PartitionDialog from '@/views/components/installer/comp/PartitionDialog.vue'
+import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant'
 import { DISK_OTHERS_COLOR, DISK_PART_PALETTE } from '@/utils/constant'
 import {formatSize} from "@/utils/utils";
 
 const { t } = useI18n()
 
 const emit = defineEmits(['prev'])
+const partitionDialogRef = ref()
 
-const installInfo = inject(INSTALL_INFO_KEY, reactive({}))
+const installInfo = inject(INSTALL_INFO_KEY) as Reactive<InstallInfo>
 async function checkValid() {
   // 待添加数据验证
   return true
@@ -71,7 +74,7 @@ const tData = computed(() => {
   return sorted.map(v => {
     return {
       ...v,
-      size: formatSize(v.size, true)
+      sizeStr: formatSize(v.size, true)
     }
   })
 })

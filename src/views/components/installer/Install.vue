@@ -191,8 +191,8 @@ function finishInstall() {
 }
 
 function closeApp() {
-  const ipc = window.electronAPI
-  ipc?.closeApp()
+  const ipc = window.electron?.ipcRenderer
+  ipc?.send('close-app')
 }
 </script>
 

@@ -35,10 +35,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, reactive, ref } from 'vue'
+import { computed, inject, Reactive, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
-import { INSTALL_INFO_KEY } from '@/utils/constant'
+import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant'
 import { TZ_AREA_KEY_MAP } from '@/utils/timezones'
 
 const { locale, t } = useI18n()
@@ -59,8 +59,7 @@ const rules = reactive({
 })
 
 const areaList = computed(() => {
-  // 目前就放了亚洲欧洲
-  const list = ['Asia', 'Europe'] // [...TZ_AREA_KEY_MAP.keys()]
+  const list = [...TZ_AREA_KEY_MAP.keys()]
   return list.map(k => ({
     label: t(`timezone.area.${k}`),
     value: k
@@ -80,14 +79,14 @@ const locationList = computed(() => {
     const locationVal = k.split('/')[1]
     const locationLocale = t(`timezone.${areaVal}.${k.split('/')[1]}`)
     return {
-      label: locale.value === 'en' ? locationVal : `${locationVal} (${locationLocale})`,
+      label: locale.value === 'en' ? locationLocale : `${locationVal} (${locationLocale})`,
       value: k
     }
   })
 })
 
 
-const installInfo = inject(INSTALL_INFO_KEY, reactive({}))
+const installInfo = inject(INSTALL_INFO_KEY) as Reactive<InstallInfo>
 async function checkValid() {
   if (!await formRef.value.validate().catch(() => false)) {
     return false

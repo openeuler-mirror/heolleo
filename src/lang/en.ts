@@ -16,14 +16,17 @@ export default {
     manual_partition: 'Manual Partition',
     use_lvm: 'Use LVM',
     partition: 'Partition',
+    partitionWay: 'Partition Type',
     partitionResult: 'Partition Result',
+    partitionType: 'Partition Type',
     size: 'Size',
     mount_point: 'Mount Point',
     filesystem: 'Filesystem',
     add_partition: 'Add Partition',
     installation_progress: 'Installation Progress',
     installing: 'Installing',
-    install: 'install',
+    install: 'Install',
+    installType: 'Install Type',
     complete: 'Complete',
     start_install: 'Start Installation',
     minInstall: 'Minimize Install',
@@ -53,7 +56,11 @@ export default {
     free: 'Free Space',
     edit: 'Edit',
     delete: 'Delete',
-    create: 'Create'
+    create: 'Create',
+    content: 'Content',
+    save: 'Save',
+    format: 'Format',
+    ok: 'OK'
   },
   timezone: {
     area: {

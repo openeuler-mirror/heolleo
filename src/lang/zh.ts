@@ -16,7 +16,9 @@ export default {
     manual_partition: '手动分区',
     use_lvm: '使用LVM',
     partition: '分区',
+    partitionWay: '分区方式',
     partitionResult: '分区结果',
+    partitionType: '分区类型',
     size: '大小',
     mount_point: '挂载点',
     filesystem: '文件系统',
@@ -24,6 +26,7 @@ export default {
     installation_progress: '安装进度',
     installing: '正在安装',
     install: '安装',
+    installType: '安装方式',
     complete: '完成',
     start_install: '开始安装',
     minInstall: '最小安装',
@@ -53,7 +56,11 @@ export default {
     free: '剩余空间',
     edit: '编辑',
     delete: '删除',
-    create: '创建'
+    create: '创建',
+    content: '内容',
+    save: '保留',
+    format: '格式化',
+    ok: '确认'
   },
   timezone: {
     area: {
