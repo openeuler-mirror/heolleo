@@ -51,7 +51,7 @@
           :loading="isInstalling"
           @click="finishInstall"
         >
-          {{ isInstalling ? '安装中' : (installFailed ? '关闭' : '完成') }}
+          {{ isInstalling ? t('install.installing') : (installFailed ? t('install.close') : t('install.complete')) }}
         </el-button>
       </div>
     </div>
@@ -67,6 +67,7 @@ import BasicSetup from './steps/BasicSetup.vue'
 import DiskPartition from './steps/DiskPartition.vue'
 import DiskPartitionManual from './steps/DiskPartitionManual.vue'
 import DiskPartitionInfo from './steps/DiskPartitionInfo.vue'
+import UserSetup from './steps/UserSetup.vue'
 import ConfigPreview from './steps/ConfigPreview.vue'
 import InstallProgress from './steps/InstallProgress.vue'
 import { INSTALL_INFO_KEY } from '@/utils/constant.ts'
@@ -75,13 +76,14 @@ import { ConfigGenerator } from '@/services/ConfigGenerator.ts'
 
 const { t, locale } = useI18n()
 
-const IDX_DISK_PART = 2
-const IDX_SHOW_INSTALL = 5
-const IDX_INSTALLING = 6
+const IDX_DISK_PART = 3
+const IDX_SHOW_INSTALL = 6
+const IDX_INSTALLING = 7
 
 const steps = [
   shallowRef(Welcome),
   shallowRef(BasicSetup),
+  shallowRef(UserSetup),
   shallowRef(DiskPartition),
   shallowRef(DiskPartitionManual), // 手动分区选了才会进
   shallowRef(DiskPartitionInfo),
@@ -152,7 +154,7 @@ async function startInstall() {
   try {
     const config = ConfigGenerator.generateConfig(installInfo, locale.value)
     
-    // 保存配置文件
+    // 保存archinstall配置文件
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const configPath = `/tmp/archinstall_config_${timestamp}.json`
     installInfo.configPath = configPath
@@ -163,6 +165,20 @@ async function startInstall() {
       console.error('Failed to save config file:', saveError)
       // 降级到浏览器下载
       ConfigGenerator.exportConfig(config, `archinstall_config_${timestamp}.json`)
+    }
+    
+    // 生成并保存用户配置文件
+    if (installInfo.username) {
+      const userConfigPath = `/tmp/user_config_${timestamp}.json`
+      installInfo.userConfigPath = userConfigPath
+      
+      try {
+        await ConfigGenerator.saveUserConfigToFile(installInfo, userConfigPath)
+      } catch (saveError) {
+        console.error('Failed to save user config file:', saveError)
+        // 降级到浏览器下载
+        await ConfigGenerator.exportUserConfig(installInfo, `user_config_${timestamp}.json`)
+      }
     }
     
     // 执行安装逻辑
