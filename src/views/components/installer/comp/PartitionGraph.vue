@@ -1,11 +1,11 @@
 <template>
-  <div class="p-graph" :style="{width: `${props.widthPx || 628}px`}">
+  <div class="p-graph" :style="{width: props.widthPx ? `${props.widthPx}px` : '100%'}">
     <div class="p-graph-bar" :style="{height: `${props.heightPx || 16}px`}">
       <div
         class="p-graph-piece"
-        v-for="(item, idx) in sortedList"
+        v-for="(item, idx) in partitionWidths"
         :key="idx"
-        :style="{ width: item.percentStr, backgroundColor: item.color }"
+        :style="{ width: item.width, backgroundColor: item.color }"
       />
     </div>
     <div class="p-graph-legend" v-if="!props.noLegend">
@@ -24,82 +24,106 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
+import { computed, type PropType } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatSize } from '@/utils/utils'
-import { DISK_OTHERS_COLOR, DISK_PART_PALETTE, PartInfo } from '@/utils/constant'
+import { formatSize } from '@/utils/utils.ts'
+import { DISK_OTHERS_COLOR, DISK_PART_PALETTE, PartInfo } from '@/utils/constant.ts'
 
 const { t } = useI18n()
 
-const props = defineProps<{
-  // totalSize: number; // 预计不需要传入总空间大小，空闲空间由API提供，总大小由汇总得到
-  dataList: Array<PartInfo>;
-  widthPx?: number;
-  heightPx?: number;
-  noLegend?: boolean;
-}>()
+interface LegendItem {
+  isTagI18n: boolean;
+  tag: string;
+  size: string;
+  sizeStr: string | { num: number; unit: string; };
+  color: string;
+  type: string;
+}
 
-const sortedList = computed(() => {
-  let dList = [];
+const props = defineProps({
+  dataList: {
+    type: Array as PropType<PartInfo[]>,
+    required: true
+  },
+  widthPx: Number,
+  heightPx: Number,
+  noLegend: Boolean
+})
+
+const sortedList = computed<LegendItem[]>(() => {
+  let dList: PartInfo[] = [];
   if (Array.isArray(props.dataList)) {
     dList = props.dataList
   }
-  let total = dList.reduce((pv, v) => pv + v.size, 0)
-  // 若API不提供空闲空间，由此根据传入的total计算空闲空间
-  // let blank = 0
-  // if (props.totalSize && props.totalSize > total) {
-  //   blank = props.totalSize - total
-  //   total = props.totalSize
-  // }
-  const list = dList.toSorted((v1, v2) => {
-    if (v1.size === v2.size) {
+  const list = dList.slice().sort((v1, v2) => {
+    const size1 = Number(v1.size)
+    const size2 = Number(v2.size)
+    if (size1 === size2) {
       return v1.tag > v2.tag ? 1 : -1
     }
-    return v2.size - v1.size
+    return size2 - size1
   })
-  const res = []
-  for (let i = 0; i < DISK_PART_PALETTE.length; i++) {
-    if (i > list.length - 1) {
-      break
-    }
+  const res: LegendItem[] = []
+  for (let i = 0; i < list.length; i++) {
     res.push({
       isTagI18n: false,
       tag: list[i].tag,
-      sizeStr: formatSize(list[i].size, true),
-      percentStr: `${(list[i].size / total * 100).toFixed(2)}%`,
-      color: DISK_PART_PALETTE[i],
-      type: list[i].type || ''
+      size: list[i].size,
+      sizeStr: formatSize(Number(list[i].size), true),
+      color: DISK_PART_PALETTE[i % DISK_PART_PALETTE.length],
+      type: list[i].fs_type || '',
     })
   }
-  if (list.length > DISK_PART_PALETTE.length) {
-    const otherSize = list.slice(10).reduce((pv, v) => pv + v.size, 0)
-    res.push({
-      isTagI18n: true,
-      tag: 'common.others',
-      sizeStr: formatSize(otherSize, true),
-      percentStr: `${(otherSize / total * 100).toFixed(2)}%`,
-      color: DISK_OTHERS_COLOR,
-      type: ''
-    })
-  }
-  // 若API不提供空闲空间，由此根据传入的total计算空闲空间
-  // if (blank / total > 0.0001) {
-  //   res.push({
-  //     isTagI18n: true,
-  //     tag: 'common.free',
-  //     sizeStr: formatSize(blank, true),
-  //     percentStr: `${(blank / total * 100).toFixed(2)}%`,
-  //     color: '#8D98AA',
-  //     type: ''
-  //   })
-  // }
   return res;
 })
+
+const partitionWidths = computed(() => {
+  const totalSize = sortedList.value.reduce((sum, p) => sum + Number(p.size), 0);
+  if (totalSize === 0) return [];
+
+  const minWidth = 3; // 3% minimum width
+  let widths = sortedList.value.map(p => ({
+    ...p,
+    w: (Number(p.size) / totalSize) * 100
+  }));
+
+  const smallPartitions = widths.filter(p => p.w > 0 && p.w < minWidth);
+  const largePartitions = widths.filter(p => p.w >= minWidth);
+
+  if (smallPartitions.length > 0) {
+    const assignedSmallWidth = smallPartitions.length * minWidth;
+
+    if (assignedSmallWidth >= 100) {
+      const equalWidth = 100 / widths.length;
+      return widths.map(p => ({ ...p, width: `${equalWidth}%` }));
+    }
+
+    const remainingWidthForLarge = 100 - assignedSmallWidth;
+    const totalLargeOriginalWidth = largePartitions.reduce((sum, p) => sum + p.w, 0);
+
+    const finalWidthsData = widths.map(p => {
+      if (p.w > 0 && p.w < minWidth) {
+        return { ...p, width: `${minWidth}%` };
+      }
+      if (p.w >= minWidth) {
+        if (totalLargeOriginalWidth > 0) {
+          const scaledWidth = (p.w / totalLargeOriginalWidth) * remainingWidthForLarge;
+          return { ...p, width: `${scaledWidth}%` };
+        }
+        return { ...p, width: '0%' };
+      }
+      return { ...p, width: '0%' };
+    });
+    return finalWidthsData;
+  }
+
+  return widths.map(p => ({ ...p, width: `${p.w}%` }));
+});
 </script>
 
 <style scoped lang="scss">
 .p-graph {
-  width: 628px;
+  width: 100%;
 }
 .p-graph-bar {
   width: 100%;
