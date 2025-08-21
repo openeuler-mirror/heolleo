@@ -32,23 +32,18 @@
             <el-option :label="t('install.manual_partition')" value="manual" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="form.partitionType === 'auto'" prop="useLvm" :label="t('install.use_lvm')">
-          <el-switch v-model="form.useLvm" />
-        </el-form-item>
       </el-form>
     </div>
     <div class="disk-info-sub">{{ t('install.diskInfo') }}</div>
-    <div class="disk-info-res">
-      <div class="disk-info-item">
-        <PartitionGraph :data-list="installInfo?.partInfo || []" :width-px="700" />
-      </div>
+    <div class="disk-info-item">
+      <PartitionGraph :data-list="installInfo?.partInfo || []" :height-px="20" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 /// &lt;reference types="@/types/electron.d.ts" /&gt;
-import { inject, onActivated, reactive, ref } from 'vue'
+import { computed, inject, onActivated, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import PartitionGraph from '@/views/components/installer/comp/PartitionGraph.vue'
@@ -62,9 +57,9 @@ const loading = ref(false)
 
 const form = reactive({
   disk: '',
-  installType: 'min',
+  installType: 'dev',
   partitionType: 'auto',
-  useLvm: true
+  useLvm: false
 })
 
 import { InstallInfo } from '@/utils/constant.ts'
@@ -88,28 +83,35 @@ async function checkValid() {
 
 const fullDiskInfo = ref<any[]>([])
 
+const selectedDisk = computed(() => {
+  if (!form.disk || !fullDiskInfo.value.length) {
+    return null
+  }
+  return fullDiskInfo.value.find(d => `/dev/${d.name}` === form.disk)
+})
+
+watch(selectedDisk, (newDisk) => {
+  if (newDisk) {
+    installInfo.partInfo = newDisk.partitions?.map(part => ({
+      ...part,
+      tag: part.name,
+      loadPoint: part.mountpoint || ''
+    })) || []
+    installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
+  }
+}, { immediate: true })
+
+
 async function fetchDiskInfo() {
   loading.value = true
   try {
     const { success, disks: diskList } = await window.electron.ipcRenderer.invoke('get-disk-info')
     if (success && diskList?.length) {
-      fullDiskInfo.value = diskList
-      disks.value = diskList.map(d => `/dev/${d.name}`)
+      fullDiskInfo.value = diskList || []
+      disks.value = (diskList || []).map(d => `/dev/${d.name}`)
       if (disks.value.length > 0) {
         form.disk = disks.value[0]
       }
-      
-      // 转换磁盘信息为分区图数据格式
-      installInfo.partInfo = diskList.flatMap(disk =>
-        disk.partitions?.map(part => ({
-          ...part,
-          tag: part.name, // Used for graph label
-          loadPoint: part.mountpoint || '' // Used for graph
-        })) || []
-      );
-      
-      // 保存分区前的状态
-      installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
     }
   } catch (error) {
     console.error('获取磁盘信息失败:', error)
@@ -120,7 +122,7 @@ async function fetchDiskInfo() {
 
 onActivated(() => {
   // 进入此页则必须获取磁盘信息
-  if (!installInfo.partInfo?.length) {
+  if (!disks.value.length) {
     fetchDiskInfo()
   }
 })
@@ -175,21 +177,16 @@ defineExpose({
     line-height: 2;
     color: #4e5865;
   }
-  &-res {
-    margin-top: 4px;
-    width: calc(100% - 32px);
-    padding: 20px 0;
-    max-height: 260px;
-    background-color: #f4f6fa;
-    overflow-y: auto;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    flex-direction: column;
-  }
   &-item {
-    margin-top: 8px;
+    width: 100%;
     display: flex;
   }
+}
+.disk-info-item {
+  width: calc(100% - 32px);
+  border: 1px solid #E5EAF1;
+  padding: 8px;
+  background-color: #f4f6fa;
+  margin-top: 8px;
 }
 </style>

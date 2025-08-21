@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Heolleo
+Name[zh_CN]=安装系统
+Comment=Heolleo Installer Application
+Exec=/usr/bin/heolleo --no-sandbox
+Terminal=false
+Type=Application
+Icon=heolleo
+Categories=Utility;

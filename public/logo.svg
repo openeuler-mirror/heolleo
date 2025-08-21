@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="91" height="91" viewBox="0 0 95 87" xmlns="http://www.w3.org/2000/svg">
+    <g fill="#083a94">
+        <rect width="97" height="87"/>
+    </g>
+    <g transform="matrix(1.7805 0 0 1.7805 20 14.98)" fill="#f7f7f7">
+        <g display="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="-26.591" y="-65.699" width="240.18" height="241.4" display="inline" fill="#f7f7f7"/>
+        </g>
+        <g display="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="m16 1.425 14.586 14.586-14.586 14.585-14.586-14.585 14.586-14.586m0-1.414-16 16 16 16 16-16-16-16z" display="inline"/>
+            <path d="m16 9.901 6.11 6.11-6.11 6.11-6.11-6.11 6.11-6.11m0-1.415-7.524 7.524 7.524 7.525 7.524-7.524-7.524-7.525z" display="inline"/>
+        </g>
+        <g display="none" xmlns="http://www.w3.org/2000/svg">
+            <g display="inline">
+                <rect transform="matrix(.7071 -.7071 .7071 .7071 -6.635 16.003)" x="5.186" y="5.197" width="21.628" height="21.628" fill="#f7f7f7"/>
+                <path d="m16 1.425 14.586 14.586-14.586 14.585-14.586-14.585 14.586-14.586m0-1.414-16 16 16 16 16-16-16-16z"/>
+            </g>
+            <g display="inline">
+                <rect transform="matrix(.7071 -.7071 .7071 .7071 -6.635 16.003)" x="11.179" y="11.19" width="9.641" height="9.641" fill="#f7f7f7"/>
+                <path d="m16 9.901 6.11 6.11-6.11 6.11-6.11-6.11 6.11-6.11m0-1.415-7.524 7.524 7.524 7.525 7.524-7.524-7.524-7.525z"/>
+            </g>
+        </g>
+        <g display="none" xmlns="http://www.w3.org/2000/svg">
+            <g display="inline">
+                <rect transform="matrix(.7071 -.7071 .7071 .7071 -6.6349 16.003)" x="4.686" y="4.697" width="22.627" height="22.627" fill="#f7f7f7"/>
+            </g>
+            <g display="inline">
+                <rect transform="matrix(.7071 -.7071 .7071 .7071 -6.6349 16.003)" x="10.68" y="10.69" width="10.641" height="10.641" fill="#f7f7f7"/>
+            </g>
+        </g>
+        <g xmlns="http://www.w3.org/2000/svg">
+            <path d="m32 16.011-16-16-16 16 16 16 16-16zm-16-5.302 5.302 5.302-5.302 5.301-5.302-5.302 5.302-5.301z"/>
+        </g>
+    </g>
+</svg>

@@ -8,7 +8,7 @@
       <div v-if="!showLog" class="carousel-wrapper">
         <el-carousel :interval="4000" arrow="always" indicator-position="none">
           <el-carousel-item v-for="idx in 3" :key="idx">
-            <img :src="`/slides/slide${idx}.png`" style="width: 100%; height: 100%; object-fit: cover;" />
+            <img :src="`./slides/slide${idx}.png`" style="width: 100%; height: 100%; object-fit: cover;" />
           </el-carousel-item>
         </el-carousel>
       </div>
@@ -87,15 +87,18 @@ async function install() {
   window.electron.ipcRenderer.on('install-log', listener)
 
   try {
-    const { success } = await window.electron.ipcRenderer.invoke('install-system', installInfo.configPath)
+    const { success } = await window.electron.ipcRenderer.invoke('install-system', {
+      configPath: installInfo.configPath,
+      userConfigPath: installInfo.userConfigPath
+    })
     if (!success) {
-      throw new Error('安装失败')
+      throw new Error(t('install.install_failed'))
     }
   } catch (err: any) {
     error.value = (err as Error).message
     installStatus.value = 'failed'
     emit('failed')
-    console.error('安装失败:', err)
+    console.error(t('install.install_failed') + ':', err)
     window.electron.ipcRenderer.removeListener('install-log', listener)
   }
 }
