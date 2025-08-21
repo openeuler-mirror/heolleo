@@ -18,20 +18,13 @@
           :placeholder="t('install.configLoading')"
         />
       </div>
-      <div class="config-actions">
-        <el-button @click="downloadConfig" type="primary" size="small" ref="downloadBtn">
-          {{ t('install.downloadConfig') }}
-        </el-button>
-        <el-button @click="copyConfig" size="small" ref="copyBtn">
-          {{ t('install.copyConfig') }}
-        </el-button>
-      </div>
+
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, reactive, onMounted } from 'vue'
+import { computed, inject, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant.ts'
@@ -51,49 +44,15 @@ const configJson = computed(() => {
   }
 })
 
-function downloadConfig() {
-  try {
-    const config = ConfigGenerator.generateConfig(installInfo, locale.value)
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    ConfigGenerator.exportConfig(config, `archinstall_config_${timestamp}.json`)
-  } catch (error) {
-    console.error('Failed to download config:', error)
-  }
-}
 
-async function copyConfig() {
-  try {
-    await navigator.clipboard.writeText(configJson.value)
-  } catch (error) {
-    console.error('Failed to copy config:', error)
-  }
-}
-
-onMounted(() => {
-  // 添加事件监听器作为备选方案
-  const downloadBtn = document.querySelector('.config-actions .el-button:first-child')
-  const copyBtn = document.querySelector('.config-actions .el-button:last-child')
-  
-  if (downloadBtn) {
-    downloadBtn.addEventListener('click', downloadConfig)
-    console.log('Added event listener to download button')
-  }
-  
-  if (copyBtn) {
-    copyBtn.addEventListener('click', copyConfig)
-    console.log('Added event listener to copy button')
-  }
-})
 
 async function checkValid() {
   return true
 }
 
-// 暴露所有需要的方法
+// 暴露需要的方法
 defineExpose({
-  checkValid,
-  downloadConfig,
-  copyConfig
+  checkValid
 })
 </script>
 
@@ -155,9 +114,5 @@ defineExpose({
   }
 }
 
-.config-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-}
+
 </style> 

@@ -38,8 +38,8 @@
 import { computed, inject, Reactive, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
-import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant'
-import { TZ_AREA_KEY_MAP } from '@/utils/timezones'
+import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant.ts'
+import { TZ_AREA_KEY_MAP } from '@/utils/timezones.ts'
 
 const { locale, t } = useI18n()
 

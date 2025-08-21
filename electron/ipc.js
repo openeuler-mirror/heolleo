@@ -3,6 +3,29 @@ const { execSync, exec } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
+// 文件系统类型映射函数
+function mapFileSystemType(fsType) {
+  if (!fsType) return null;
+  
+  const fsTypeMap = {
+    'vfat': 'fat32',
+    'fat32': 'fat32',
+    'fat16': 'fat16',
+    'fat12': 'fat12',
+    'ext4': 'ext4',
+    'ext3': 'ext3',
+    'ext2': 'ext2',
+    'btrfs': 'btrfs',
+    'xfs': 'xfs',
+    'ntfs': 'ntfs',
+    'swap': 'swap',
+    'iso9660': 'iso9660',
+    'udf': 'udf'
+  };
+  
+  return fsTypeMap[fsType.toLowerCase()] || fsType;
+}
+
 // 检查root权限
 function checkRoot() {
   return process.getuid && process.getuid() === 0
@@ -147,9 +170,19 @@ function registerIpcListeners() {
   })
 
   // 安装系统
-  ipcMain.handle('install-system', async (event, configPath) => {
+  ipcMain.handle('install-system', async (event, { configPath, userConfigPath }) => {
     const webContents = event.sender
-    const installCommand = `sudo python -m archinstall --config ${configPath} --silent`
+    
+    let installCommand
+    if (userConfigPath) {
+      // 使用两个配置文件：archinstall配置和用户配置
+      installCommand = `sudo archinstall --config ${configPath} --creds ${userConfigPath} --silent`
+    } else {
+      // 只使用archinstall配置文件
+      installCommand = `sudo archinstall --config ${configPath} --silent`
+    }
+    
+    console.log('Install command:', installCommand)
     const installProcess = exec(installCommand);
 
     installProcess.stdout.on('data', (data) => {
@@ -259,16 +292,42 @@ function registerIpcListeners() {
   })
 
   // 获取所有磁盘信息
-  ipcMain.handle('get-disk-info', () => {
+  ipcMain.handle('get-disk-info', async () => {
     try {
-      // 检查lsblk命令是否可用
+      // Helper to run os-prober asynchronously
+      const getOsProberResults = () => {
+        return new Promise((resolve) => {
+          exec('os-prober', (error, stdout, stderr) => {
+            if (error) {
+              console.warn('os-prober failed or not found:', stderr);
+              resolve({});
+              return;
+            }
+            const results = {};
+            stdout.trim().split('\n').forEach(line => {
+              const [path, name] = line.split(':').slice(0, 2);
+              if (path && name) {
+                results[path.trim()] = name.trim();
+              }
+            });
+            resolve(results);
+          });
+        });
+      };
+
+      // Check for necessary commands
       try {
-        execSync('which lsblk')
+        execSync('which lsblk && which parted && which blockdev');
       } catch {
-        throw new Error('lsblk command not found')
+        throw new Error('One or more required commands (lsblk, parted, blockdev) not found');
       }
 
-      const lsblkOutput = execSync('lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,UUID,PATH').toString();
+      // Run os-prober and lsblk in parallel
+      const [osProberResults, lsblkOutput] = await Promise.all([
+        getOsProberResults(),
+        execSync('lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,UUID,PATH').toString()
+      ]);
+      
       const { blockdevices } = JSON.parse(lsblkOutput);
 
       const disks = blockdevices
@@ -284,54 +343,49 @@ function registerIpcListeners() {
             }
           } catch (e) {
             console.error(`Could not run parted or blockdev on ${disk.path}: ${e}`);
-            // If parted fails, we can still return the lsblk info
           }
 
           const partitions = disk.children?.map(part => {
             const partDetails = {
               name: part.name,
               dev_path: part.path,
-              size: part.size,
-              fs_type: part.fstype || null,
+              size: parseInt(part.size, 10),
+              fs_type: mapFileSystemType(part.fstype), // 使用映射函数转换文件系统类型
               mountpoint: part.mountpoint || null,
               uuid: part.uuid || null,
+              os: osProberResults[part.path] || null, // Add OS info
               flags: [],
               start: null,
-              type: 'primary', // Default, can be refined by parted
-              status: 'existing' // Default
+              type: 'primary',
+              status: 'existing'
             };
 
             if (partedOutput) {
               const lines = partedOutput.split('\n');
               const partLine = lines.find(line => {
                 const cols = line.trim().split(/\s+/);
-                // Match by partition number, assuming name is like 'sda1', 'nvme0n1p1'
                 const partNumMatch = part.name.match(/\d+$/);
-                if (partNumMatch && cols[0] === partNumMatch[0]) {
-                  return true;
-                }
-                return false;
+                return partNumMatch && cols[0] === partNumMatch[0];
               });
 
               if (partLine) {
                 const cols = partLine.trim().split(/\s+/);
                 partDetails.start = parseInt(cols[1].replace('B', ''), 10);
-                partDetails.type = cols[3]; // e.g., primary
-                // Flags are in the last column, comma-separated
+                partDetails.type = cols[3];
                 if (cols.length > 5 && cols[5]) {
                    partDetails.flags = cols[5].split(',').map(f => f.trim()).filter(f => f);
                 }
               }
             }
             
-            // A simple way to determine boot/esp flag if parted fails
-            if (!partedOutput && (part.mountpoint === '/boot/efi' || part.fstype === 'vfat')) {
-                partDetails.flags.push('boot', 'esp');
+            if (partDetails.flags.length === 0) {
+                if (part.mountpoint === '/boot/efi' || (part.fstype === 'vfat' && partDetails.type === 'EFI System')) {
+                    partDetails.flags.push('boot', 'esp');
+                }
+                if (part.mountpoint === '/boot') {
+                    partDetails.flags.push('bls_boot');
+                }
             }
-            if (part.mountpoint === '/boot') {
-                partDetails.flags.push('bls_boot');
-            }
-
 
             return partDetails;
           }) || [];
@@ -339,16 +393,16 @@ function registerIpcListeners() {
           return {
             name: disk.name,
             device: disk.path,
-            size: disk.size,
+            size: parseInt(disk.size, 10),
             type: disk.type,
             mountpoint: disk.mountpoint || null,
-            sector_size: sectorSize,
-            partitions: partitions.filter(p => p) // Filter out nulls from failed parted calls
+            sector_size: sectorSize, // Keep sector_size
+            partitions: partitions
           };
         });
 
-      console.log('Disks info:', disks)
-      return { success: true, disks }
+      console.log('Disks info:', JSON.stringify(disks, null, 2));
+      return { success: true, disks };
     } catch (error) {
       console.error('Failed to get disk info:', error)
       return {
@@ -403,7 +457,7 @@ function registerIpcListeners() {
           return {
             name: part.name,
             size: part.size,
-            fsType: part.fstype || 'unknown',
+            fsType: mapFileSystemType(part.fstype) || 'unknown',
             mountpoint: part.mountpoint || null,
             used: used || null,
             available: available || null,

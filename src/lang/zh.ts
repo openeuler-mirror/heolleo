@@ -44,7 +44,32 @@ export default {
     configDownloaded: '配置文件已下载',
     configDownloadFailed: '配置文件下载失败',
     configCopied: '配置已复制到剪贴板',
-    configCopyFailed: '配置复制失败'
+    configCopyFailed: '配置复制失败',
+    storage_device: '存储器',
+    undo_all_changes: '撤销所有修改',
+    name: '名称',
+    new_partition_table: '新建分区表',
+    new_volume_group: '新卷组',
+    resize_volume_group: '调整卷组大小',
+    use_volume_group: '使用卷组',
+    remove_volume_group: '移除卷组',
+    create_partition_table: '创建分区表',
+    create_partition_table_confirm: '您是否确定要在 {disk} 上创建新分区表？',
+    create_partition_table_warning: '创建新分区表将删除磁盘上所有已有数据。',
+    partition_type_select_label: '您想要创建哪种分区表？',
+    mbr: '主引导记录 (MBR)',
+    gpt: 'GUID 分区表 (GPT)',
+    fs_label: '文件系统卷标',
+    label: '标记',
+    format_warning: '警告：格式化分区将删除所有已有数据。',
+    free_space: '空闲空间',
+    new_partition: '新建分区',
+    size_range_tip: '允许的大小范围：',
+    size_too_large_tip: '大小不能超过最大值',
+    filesystem_label: '文件系统标签',
+    unknown: '未知',
+    error_no_root: '错误：必须至少有一个挂载点为 / 的分区',
+    error_fs_type_required: '错误：文件系统类型为必填项'
   },
   common: {
     pre: '上一步',
@@ -60,7 +85,9 @@ export default {
     content: '内容',
     save: '保留',
     format: '格式化',
-    ok: '确认'
+    ok: '确认',
+    before: '当前',
+    after: '之后'
   },
   timezone: {
     area: {

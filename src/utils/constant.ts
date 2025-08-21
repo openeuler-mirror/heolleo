@@ -13,6 +13,7 @@ export interface PartInfo {
   status: string; // 'existing'
   tag: string; // for graph color and label
   loadPoint: string; // for graph
+  label?: string;
 }
 export interface InstallInfo {
   timezone: string;

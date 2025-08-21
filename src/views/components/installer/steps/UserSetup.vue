@@ -27,12 +27,12 @@
         </el-form-item>
 
         <el-form-item :label="t('common.blank')" style="margin-top: -14px;">
-          <el-checkbox v-model="isUseStrong" label="使用强密码" />
-          <el-checkbox v-model="isAdminSame" label="为管理员使用同样的密码" />
+          <el-checkbox v-model="isUseStrong" :label="t('install.use_strong_password')" />
+          <el-checkbox v-model="isAdminSame" :label="t('install.use_same_password_for_admin')" />
         </el-form-item>
 
         <template v-if="!isAdminSame">
-          <el-form-item prop="adminPassword" :label="'管理员密码'">
+          <el-form-item prop="adminPassword" :label="t('install.admin_password')">
             <el-input v-model="form.adminPassword" :type="pwdShown[2] ? 'input' : 'password'">
               <template #suffix>
                 <PasswordEye class="pwd-suffix" :is-open="pwdShown[2]" @click="pwdShown[2] = !pwdShown[2]" />
@@ -56,9 +56,10 @@
 <script setup lang="ts">
 import { inject, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import PasswordEye from '@/views/components/svg/PasswordEye.vue'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
-import {INSTALL_INFO_KEY} from "@/utils/constant";
+import {INSTALL_INFO_KEY} from "@/utils/constant.ts";
 
 const { t } = useI18n()
 
@@ -101,42 +102,24 @@ async function checkValid() {
     return false
   }
 
-  loading.value = true
-  try {
-    // 创建普通用户
-    const { success, error } = await window.electron.ipcRenderer.invoke('create-user', {
-      username: form.username,
-      password: form.password
-    })
-    
-    if (!success) {
-      throw new Error(error || '创建用户失败')
-    }
-
-    // 如果需要创建管理员且密码不同
-    if (!isAdminSame.value) {
-      const { success: adminSuccess, error: adminError } = await window.electron.ipcRenderer.invoke('create-user', {
-        username: 'admin',
-        password: form.adminPassword
-      })
-      
-      if (!adminSuccess) {
-        throw new Error(adminError || '创建管理员失败')
-      }
-    }
-
-    // 保存用户信息
-    installInfo.username = form.username
-    installInfo.password = form.password
-    installInfo.adminPassword = isAdminSame.value ? form.password : form.adminPassword
-    
-    return true
-  } catch (error) {
-    console.error('用户创建失败:', error)
+  // 验证密码确认
+  if (form.password !== form.confirmPassword) {
+    ElMessage.error(t('install.password_mismatch'))
     return false
-  } finally {
-    loading.value = false
   }
+
+  if (!isAdminSame.value && form.adminPassword !== form.adminConfirmPassword) {
+    ElMessage.error(t('install.admin_password_mismatch'))
+    return false
+  }
+
+  // 保存用户信息到installInfo
+  installInfo.username = form.username
+  installInfo.password = form.password
+  installInfo.adminPassword = isAdminSame.value ? form.password : form.adminPassword
+  installInfo.isAdminSame = isAdminSame.value
+  
+  return true
 }
 
 defineExpose({
