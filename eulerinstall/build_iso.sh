@@ -6,21 +6,21 @@ packages_file="/tmp/archlive/packages.x86_64"
 
 # Packages to add to the archiso profile packages
 packages=(
-	gcc
-	git
-	pkgconfig
-	python
-	python-pip
-	python-uv
-	python-setuptools
-	python-pyparted
-	python-pydantic
+    gcc
+    git
+    pkgconfig
+    python
+    python-pip
+    python-uv
+    python-setuptools
+    python-pyparted
+    python-pydantic
 )
 
 mkdir -p /tmp/archlive/airootfs/root/archinstall-git
 cp -r . /tmp/archlive/airootfs/root/archinstall-git
 
-cat <<- _EOF_ | tee /tmp/archlive/airootfs/root/.zprofile
+cat <<-_EOF_ | tee /tmp/archlive/airootfs/root/.zprofile
 	cd archinstall-git
 	rm -rf dist
 
@@ -40,7 +40,7 @@ sed -i /archinstall/d "$packages_file"
 
 # Add packages to the archiso profile packages
 for package in "${packages[@]}"; do
-	echo "$package" >> "$packages_file"
+    echo "$package" >>"$packages_file"
 done
 
 find /tmp/archlive
