@@ -34,8 +34,7 @@ class SystemType:
                         return 'ubuntu'
                     elif 'debian' in content:
                         return 'debian'
-                    elif 'openEuler' in content:
-                        return 'openEuler'
+
             
             # 检查包管理器
             if subprocess.run(['which', 'pacman'], capture_output=True).returncode == 0:
