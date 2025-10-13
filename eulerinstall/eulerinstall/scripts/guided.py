@@ -32,60 +32,13 @@ from eulerinstall.lib.profile.profiles_handler import profile_handler
 from eulerinstall.lib.translationhandler import tr
 from eulerinstall.tui import Tui
 from eulerinstall.lib.general import SysCommand
+from .packages_list import PACKAGES_LIST
 
-__packages__ = ["checkpolicy", "dejavu-fonts", "liberation-fonts", "gnome-shell", "gnome-session", 
-            "gnome-terminal", "gnome-software", "gnome-menus", "nautilus", "xdg-utils", "google-droid-sans-fonts", 
-            "google-noto-fonts-common", "google-noto-sans-arabic-vf-fonts", "google-noto-sans-armenian-vf-fonts", 
-            "google-noto-sans-bengali-vf-fonts", "google-noto-sans-canadian-aboriginal-vf-fonts", "google-noto-sans-cherokee-vf-fonts", 
-            "google-noto-sans-devanagari-vf-fonts", "google-noto-sans-ethiopic-vf-fonts", "google-noto-sans-georgian-vf-fonts", 
-            "google-noto-sans-hebrew-vf-fonts", "google-noto-sans-kannada-vf-fonts", "google-noto-sans-khmer-vf-fonts", 
-            "google-noto-sans-lao-vf-fonts", "google-noto-sans-math-fonts", "google-noto-sans-mono-vf-fonts", 
-            "google-noto-sans-sinhala-vf-fonts", "google-noto-sans-symbols2-fonts", "google-noto-sans-symbols-vf-fonts", 
-            "google-noto-sans-tamil-vf-fonts", "google-noto-sans-thaana-vf-fonts", "google-noto-sans-thai-vf-fonts", 
-            "google-noto-sans-vf-fonts", "google-noto-serif-armenian-vf-fonts", "google-noto-serif-ethiopic-vf-fonts", 
-            "google-noto-serif-georgian-vf-fonts", "google-noto-serif-gujarati-vf-fonts", "google-noto-serif-gurmukhi-vf-fonts",
-            "google-noto-serif-hebrew-vf-fonts", "google-noto-serif-kannada-vf-fonts", "google-noto-serif-khmer-vf-fonts", 
-            "google-noto-serif-lao-vf-fonts", "google-noto-serif-sinhala-vf-fonts", "google-noto-serif-tamil-vf-fonts", 
-            "google-noto-serif-thai-vf-fonts", "google-noto-serif-vf-fonts", "gdm", "ibus-libpinyin",
-            "firefox", "wqy-zenhei-fonts", "oeDevPlugin", "rust-cbindgen", "polkit-qt5-1", "polkit-qt5-1-devel", 
-            "oedp", "kernel-extra-modules", "epkg", "euler-copilot-shell", "vscodium", "oegitext", "kf5-kcalendarcore-devel",
-            "kf5-kcalendarcore", "rust-ripgrep", "xorg-x11-drv-*", "linux-firmware-iwlwifi", "linux-firmware-mediatek", 
-            "gnome-keyring", "gnome-keyring-pam", "linux-firmware-ath", "linux-firmware-cypress", "linux-firmware-libertas", 
-            "linux-firmware-mrvl", "linux-firmware-netronome", "gnome-shell-extension-dash-to-dock", "CUnit", "CUnit-devel", 
-			"autogen", "chrony", "copy-jdk-configs", "dhcp", "dnf-plugins-core", "docbook-dtds", "euler-copilot-desktop", 
-			"binutils", "cpp",  "curl", 
-			"e2fsprogs",  "e2fsprogs-help", "firefox", "gcc", 
-			"gcc-c++",  "gcc-gdb-plugin", "gdb",  "gdb-headless", 
-			"gdk-pixbuf2",  "gdk-pixbuf2-devel", 
-			"gdk-pixbuf2-modules", "gjs", "glibc", "glibc-common", 
-			"glibc-devel", "kernel-extra-modules", "roo-code", "thunderbird","kernel-headers", "kernel-tools","python3-mcp"
-			# "gnome-calendar", "gnome-clocks", "gnome-connections", "gnome-console", "gnome-contacts", 
-			# "gnome-doc-utils", "gnome-doc-utils-stylesheets", "gnome-maps", "gnome-user-docs", "gnome-weather", "grep", 
-			# "grep", "grub2-efi-x64-modules", "gtest-devel", "gtk-vnc2", "gvnc", "gvncpulse", "info", 
-			# "iputils", "itstool", "java-21-openjdk", "java-21-openjdk-devel", "java-21-openjdk-headless", "javapackages-filesystem", 
-			# "kernel-extra-modules", "kernel-headers", "kernel-tools", "kpartx", 
-			# "libatomic", "libcurl", "libevent", "libffi", 
-			# "libffi-devel", "libgcc", "libgomp", "libicu",  "libicu-devel", 
-			# "libpcap",  "libpfm", "libshumate", "libstdc++","libstdc++-devel", 
-			# "libtraceevent", "libxslt", "mallard-rng", "man-pages", "mesa-dri-drivers", 
-			# "mesa-filesystem", "mesa-libEGL", "mesa-libEGL-devel", 
-			# "mesa-libGL", "mesa-libGL-devel", "mesa-libgbm",
-			# "mesa-libglapi", "mesa-libxatracker","mesa-vulkan-drivers", 
-			# "microcode_ctl", "mozjs102","multipath-tools", "nodejs", 
-			# "nodejs-docs", "nodejs-full-i18n", "nodejs-libs", "npm", "ntp", "ntpstat", 
-			# "osinfo-db",  "perf", "plymouth", "polkit", "polkit-devel",
-			# "polkit-help", "polkit-libs", "poppler", "poppler-cpp", 
-			# "poppler-glib", "python3-annotated-types", "python3-anyio", "python3-certifi", "python3-click", "python3-colorama", 
-			# "python3-dns", "python3-dotenv", "python3-email-validator", "python3-h11", "python3-httpcore", "python3-httpx", 
-			# "python3-httpx-sse", "python3-idna", "python3-iniconfig", "python3-libxml2", "python3-lxml", "python3-markdown-it-py", 
-			# "python3-mcp", "python3-mdurl", "python3-packaging", "python3-pluggy", "python3-pydantic", "python3-pydantic-core", 
-			# "python3-pydantic-settings", "python3-pygments", "python3-pytest", "python3-rich", "python3-shellingham", 
-			# "python3-sniffio", "python3-sse-starlette", "python3-starlette", "python3-typer", "python3-typer-cli", 
-			# "python3-typer-slim", "python3-typing-extensions", "python3-ujson", "python3-uvicorn", "qrencode", "roo-code", 
-			# "thunderbird", "thunderbird-librnp-rnp", "tzdata-java", "unzip", "uv", "vim-common", "vim-common", "vim-enhanced",
-			# "vim-enhanced", "vim-filesystem", "vim-filesystem", "vim-minimal", "xorg-x11-fonts-others", 
-			# "yelp-tools", "yelp-xsl"		
-]
+CONFIG_NAME = 'devstation-config'
+PACKAGES_PATH = Path("/run/initramfs/live/Packages/")
+REPO_SOURCE = Path("/etc/yum.repos.d/local.repo")
+
+__packages__ = PACKAGES_LIST
 
 
 def ask_user_questions() -> None:
@@ -160,8 +113,8 @@ def perform_installation(mountpoint: Path) -> None:
 		if mirror_config := config.mirror_config:
 			installation.set_mirrors(mirror_config, on_target=True)
 
-		# if config.swap:
-		# 	installation.setup_swap('zram')
+		if config.swap:
+		 installation.setup_swap('zram')
 
 		if config.bootloader and config.bootloader != Bootloader.NO_BOOTLOADER:
 			if config.bootloader == Bootloader.Grub and SysInfo.has_uefi():
@@ -229,18 +182,11 @@ def perform_installation(mountpoint: Path) -> None:
 
 		# install graphical packages
 		info(f'start install graphical packages')
-		repo_source = Path("/etc/yum.repos.d/local.repo")
-		import platform
-		machine = platform.machine()
-		if machine == 'x86_64':
-			config_name='devstation-config-2-5.oe2509.x86_64.rpm'
-			dev_config='/run/initramfs/live/Packages/devstation-config-2-5.oe2509.x86_64.rpm'
-		elif machine == 'aarch64':
-			config_name='devstation-config-2-5.oe2509.aarch64.rpm'
-			dev_config='/run/initramfs/live/Packages/devstation-config-2-5.oe2509.aarch64.rpm'
-		else:
-			raise ValueError(f'Unsupported architecture: {machine}')
-		if repo_source.exists():
+		config_name = find_package_glob(CONFIG_NAME, PACKAGES_PATH)
+		info('config_name is: {config_name}')
+		dev_config = os.path.join(PACKAGES_PATH, config_name)
+
+		if REPO_SOURCE.exists():
 			local_repo='local-repo'
 		else:
 			local_repo='openEuler'
@@ -292,6 +238,11 @@ def perform_installation(mountpoint: Path) -> None:
 					except Exception:
 						pass
 
+def find_package_glob(search_name, package_path):
+    """使用glob模式匹配查找包"""
+    pattern = os.path.join(package_path, f"*{search_name}*")
+    matches = glob.glob(pattern)
+    return matches
 
 def guided() -> None:
 	if not arch_config_handler.args.silent:
