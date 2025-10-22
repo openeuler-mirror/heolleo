@@ -21,7 +21,7 @@ from .general_conf import (
 	ask_for_a_timezone,
 	ask_hostname,
 	ask_ntp,
-	select_archinstall_language,
+	select_eulerinstall_language,
 )
 from .manage_users_conf import UserList, ask_for_additional_users
 from .network_menu import ManualNetworkConfig, ask_to_configure_network
@@ -41,7 +41,7 @@ __all__ = [
 	'ask_ntp',
 	'ask_to_configure_network',
 	'get_default_partition_layout',
-	'select_archinstall_language',
+	'select_eulerinstall_language',
 	'select_devices',
 	'select_disk_config',
 	'select_driver',

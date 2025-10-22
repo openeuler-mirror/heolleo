@@ -67,7 +67,7 @@ class ArchConfig:
 	version: str | None = None
 	script: str | None = None
 	locale_config: LocaleConfiguration | None = None
-	archinstall_language: Language = field(default_factory=lambda: translation_handler.get_language_by_abbr('en'))
+	eulerinstall_language: Language = field(default_factory=lambda: translation_handler.get_language_by_abbr('zh-CN'))
 	disk_config: DiskLayoutConfiguration | None = None
 	profile_config: ProfileConfiguration | None = None
 	mirror_config: MirrorConfiguration | None = None
@@ -107,7 +107,7 @@ class ArchConfig:
 		config: Any = {
 			'version': self.version,
 			'script': self.script,
-			'archinstall-language': self.archinstall_language.json(),
+			'archinstall-language': self.eulerinstall_language.json(),
 			'hostname': self.hostname,
 			'kernels': self.kernels,
 			'ntp': self.ntp,
@@ -149,7 +149,7 @@ class ArchConfig:
 			arch_config.script = script
 
 		if archinstall_lang := args_config.get('archinstall-language', None):
-			arch_config.archinstall_language = translation_handler.get_language_by_name(archinstall_lang)
+			arch_config.eulerinstall_language = translation_handler.get_language_by_name(archinstall_lang)
 
 		if disk_config := args_config.get('disk_config', {}):
 			enc_password = args_config.get('encryption_password', '')

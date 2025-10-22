@@ -32,14 +32,6 @@ from eulerinstall.lib.profile.profiles_handler import profile_handler
 from eulerinstall.lib.translationhandler import tr
 from eulerinstall.tui import Tui
 from eulerinstall.lib.general import SysCommand
-from .packages_list import PACKAGES_LIST
-
-CONFIG_NAME = 'devstation-config'
-PACKAGES_PATH = Path("/run/initramfs/live/Packages/")
-REPO_SOURCE = Path("/etc/yum.repos.d/local.repo")
-
-__packages__ = PACKAGES_LIST
-
 
 def ask_user_questions() -> None:
 	"""
@@ -113,13 +105,7 @@ def perform_installation(mountpoint: Path) -> None:
 		if mirror_config := config.mirror_config:
 			installation.set_mirrors(mirror_config, on_target=True)
 
-		if config.swap:
-		 installation.setup_swap('zram')
-
 		if config.bootloader and config.bootloader != Bootloader.NO_BOOTLOADER:
-			if config.bootloader == Bootloader.Grub and SysInfo.has_uefi():
-				installation.add_additional_packages('grub2')
-
 			installation.add_bootloader(config.bootloader, config.uki)
 
 		# If user selected to copy the current ISO network configuration
@@ -180,46 +166,13 @@ def perform_installation(mountpoint: Path) -> None:
 
 		installation.genfstab()
 
-		# install graphical packages
-		info(f'start install graphical packages')
-		config_name = find_package_glob(CONFIG_NAME, PACKAGES_PATH)
-		info('config_name is: {config_name}')
-		dev_config = os.path.join(PACKAGES_PATH, config_name)
+		info(f'generate regenerate_initramfs')
+		installation.regenerate_initramfs()
 
-		if REPO_SOURCE.exists():
-			local_repo='local-repo'
-		else:
-			local_repo='openEuler'
+		installation.updategrub()
 
-		for package in __packages__:
-			SysCommand(f'dnf --installroot=/mnt install --assumeyes  --disablerepo=* --enablerepo={local_repo} --nogpgcheck --setopt=sslverify=0 --releasever=/ {package}',
-					peek_output=True)
-
-		SysCommand(f'cp {dev_config} /mnt')
-		info(f'start install config: {config_name}')
-		SysCommand(f'chroot /mnt rpm -ivh {config_name} --nodeps')
-
-
-		info('start enable service!!!!!!!!')
-		# 启用服务
-		services = [
-			"gdm",
-			"NetworkManager"
-		]
-
-		try:
-			for service in services:
-				SysCommand(f"chroot /mnt systemctl enable {service}")
-			
-			SysCommand("chroot /mnt systemctl set-default graphical.target")
-		except Exception as es:
-			warn(f'enable {service} failed')
-
-		# #set .bashrc
-		# info('set .bashrc...........')
-		# SysCommand('cp /root/.bashrc /mnt')
-		# SysCommand('chroot /mnt source .bashrc')
-
+		info(f'post deal for devstation')
+		installation.post_deal_devstation()
 
 		debug(f'Disk states after installing:\n{disk_layouts()}')
 
@@ -237,12 +190,6 @@ def perform_installation(mountpoint: Path) -> None:
 						installation.drop_to_shell()
 					except Exception:
 						pass
-
-def find_package_glob(search_name, package_path):
-    """使用glob模式匹配查找包"""
-    pattern = os.path.join(package_path, f"*{search_name}*")
-    matches = glob.glob(pattern)
-    return matches
 
 def guided() -> None:
 	if not arch_config_handler.args.silent:

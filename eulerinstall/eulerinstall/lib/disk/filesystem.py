@@ -34,6 +34,8 @@ from ..models.device import (
 )
 from ..output import debug, info
 from .device_handler import device_handler
+from ..general import SysCommand
+from ..exceptions import SysCallError
 
 
 class FilesystemHandler:
@@ -42,6 +44,9 @@ class FilesystemHandler:
 		self._enc_config = disk_config.disk_encryption
 
 	def perform_filesystem_operations(self, show_countdown: bool = True) -> None:
+		# clean mpath
+		self._clean_mpath()
+
 		if self._disk_config.config_type == DiskLayoutType.Pre_mount:
 			debug('Disk layout configuration is set to pre-mount, not performing any operations')
 			return
@@ -85,6 +90,13 @@ class FilesystemHandler:
 				for part_mod in mod.partitions:
 					if part_mod.fs_type == FilesystemType.Btrfs and part_mod.is_create_or_modify():
 						device_handler.create_btrfs_volumes(part_mod, enc_conf=self._enc_config)
+
+	def _clean_mpath(self) -> None:
+		try:
+			SysCommand(f'multipath -F')
+			info(f'mpath clean successful')
+		except SysCallError as e:
+			error(f'clean mpath failed: {e}')
 
 	def _format_partitions(
 		self,

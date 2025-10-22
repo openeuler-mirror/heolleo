@@ -153,7 +153,7 @@ def test_config_file_parsing(
 			sys_lang='en_US',
 			sys_enc='UTF-8',
 		),
-		archinstall_language=translation_handler.get_language_by_abbr('en'),
+		eulerinstall_language=translation_handler.get_language_by_abbr('en'),
 		disk_config=DiskLayoutConfiguration(
 			config_type=DiskLayoutType.Default,
 			device_modifications=[],

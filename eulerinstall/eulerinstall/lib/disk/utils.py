@@ -129,10 +129,19 @@ def umount(mountpoint: Path, recursive: bool = False) -> None:
 	debug(f'Partition {mountpoint} is currently mounted at: {[str(m) for m in lsblk_info.mountpoints]}')
 
 	cmd = ['umount']
+	cmd.append('-l')
 
 	if recursive:
 		cmd.append('-R')
 
 	for path in lsblk_info.mountpoints:
 		debug(f'Unmounting mountpoint: {path}')
-		SysCommand(cmd + [str(path)])
+		try:
+			SysCommand(cmd + [str(path)])
+		except SysCallError as e:
+			# Ignore errors when trying to unmount a directory that is not mounted or not found
+			if 'not mounted' in str(e) or 'not found' in str(e) or 'no mount point specified' in str(e):
+				debug(f'Mountpoint {path} is not mounted or not found, skipping unmount')
+			else:
+				# Re-raise other errors
+				raise

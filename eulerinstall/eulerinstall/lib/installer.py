@@ -58,6 +58,7 @@ from .pacman import Pacman
 from .pacman.config import PacmanConfig
 from .plugins import plugins
 from .storage import storage
+from .disk.utils import umount
 
 # Any package that the Installer() is responsible for (optional and the default ones)
 __packages__ = ['base', 'base-devel', 'linux-firmware', 'linux', 'linux-lts', 'linux-zen', 'linux-hardened']
@@ -67,6 +68,18 @@ __accessibility_packages__ = ['brltty', 'espeakup', 'alsa-utils']
 
 
 class Installer:
+	# 公共目录常量
+	LIVEOS_MOUNT_DIR = '/tmp/LiveOS/'
+	ROOTFS_MOUNT_DIR = '/tmp/rootfs/'
+	SQUASHFS_IMAGE_PATH = '/run/initramfs/live/LiveOS/squashfs.img'
+	ROOTFS_IMAGE_PATH = '/tmp/LiveOS/LiveOS/rootfs.img'
+	
+	# 引导相关常量
+	GRUB_CFG_PATH = '/boot/grub2/grub.cfg'
+	EFI_OPEN_EULER_PATH = '/boot/efi/EFI/openEuler/'
+	EFI_VARS_PATH = '/sys/firmware/efi/efivars'
+	LOCALE_CONF = '/etc/locale.conf'
+
 	def __init__(
 		self,
 		target: Path,
@@ -583,7 +596,9 @@ class Installer:
 		
 		# Remove existing fstab if it exists
 		if fstab_path.exists():
+			info(f'fstab file exist! remove it firstly')
 			fstab_path.unlink()
+			SysCommand(f'rm -f {fstab_path}')
 		
 		# Get all mounted devices
 		mounts = []
@@ -711,7 +726,187 @@ class Installer:
 			return False
 
 		(self.target / 'etc/locale.conf').write_text(f'LANG={lang_value}\n')
-		return True
+		return 
+
+	def regenerate_initramfs(self) -> None:
+		"""
+		在切根环境中重建initramfs和machine-id
+		使用dracut重新生成所有已安装内核的initramfs镜像
+		并重新生成machine-id以确保系统唯一性
+		"""
+		info(f'正在重建initramfs和machine-id...')
+
+		try:
+			# 首先重新生成machine-id以确保系统唯一性
+			info(f'正在重新生成machine-id...')
+			self.arch_chroot('systemd-machine-id-setup')
+			info(f'machine-id重建完成')
+
+			# 使用dracut重新生成所有内核的initramfs
+			# --regenerate-all: 为所有已安装的内核重新生成initramfs
+			# --force: 强制覆盖已存在的initramfs文件
+			# --verbose: 显示详细输出
+			# --omit multipath: 排除multipath模块（避免某些硬件兼容性问题）
+			dracut_args = ['--regenerate-all', '--force', '--verbose', '--omit', 'multipath']
+			self.arch_chroot(f'dracut {" ".join(dracut_args)}')
+			info(f'initramfs重建完成')
+		except SysCallError as e:
+			error(f'重建initramfs或machine-id时出错: {e}')
+			# 记录详细的错误信息
+			if e.worker_log:
+				log(e.worker_log.decode())
+			raise ServiceException(f'无法重建initramfs: {e}')
+		
+	def post_deal_devstation(self) -> None:
+		"""
+		在切根环境中处理 devstation 相关清理工作
+		1. 完全删除 devstation 用户
+		2. 删除 installer 安装工具
+		"""
+		info(f'开始清理 devstation 相关配置...')
+		
+		# 删除 installer 安装工具
+		self._remove_installer_package()
+
+		# 设置默认语言环境为中文
+		self._set_locale_default()
+
+		# 卸载目录挂载点 umount
+		self._umount_points()
+		
+		info(f'devstation 相关清理完成')
+
+	def _umount_points(self) -> None:
+		"""卸载所有挂载点"""
+		info("开始卸载挂载点...")
+		
+		# 卸载 rootfs 挂载点
+		info(f"卸载 rootfs 挂载点: {self.ROOTFS_MOUNT_DIR}")
+		try:
+			SysCommand(f'umount -l {self.ROOTFS_MOUNT_DIR}')
+			SysCommand(f'rm -rf {self.ROOTFS_MOUNT_DIR}')
+			info(f"成功卸载并删除 rootfs 挂载点")
+		except Exception as e:
+			error(f"卸载 rootfs 挂载点失败: {e}")
+		
+		# 卸载 LiveOS 挂载点
+		info(f"卸载 LiveOS 挂载点: {self.LIVEOS_MOUNT_DIR}")
+		try:
+			SysCommand(f'umount -l {self.LIVEOS_MOUNT_DIR}')
+			SysCommand(f'rm -rf {self.LIVEOS_MOUNT_DIR}')
+			info(f"成功卸载并删除 LiveOS 挂载点")
+		except Exception as e:
+			error(f"卸载 LiveOS 挂载点失败: {e}")
+		
+		info("所有挂载点卸载完成")
+
+	def _set_locale_default(self) -> None:
+		"""
+		在切根环境中设置默认语言环境为中文 zh_CN.UTF-8
+		"""
+		info(tr('Checking current locale configuration'))
+		
+		# 在目标系统中获取 /etc/locale.conf 文件路径
+		locale_conf_path = self.target / self.LOCALE_CONF.lstrip('/')
+		
+		try:
+			# 检查当前语言环境是否为中文
+			current_locale_is_chinese = False
+			
+			if locale_conf_path.exists():
+				# 读取现有的 locale.conf 文件内容
+				with open(locale_conf_path, 'r', encoding='utf-8') as f:
+					content = f.read()
+				
+				# 检查是否已经配置为中文
+				if 'zh_CN.UTF-8' in content:
+					current_locale_is_chinese = True
+					info(tr(f'Current locale is already set to Chinese, no need to update'))
+			
+			# 如果当前不是中文语言环境，则进行设置
+			if not current_locale_is_chinese:
+				info(tr('Setting default locale to Chinese (zh_CN.UTF-8)'))
+				
+				# 写入中文语言环境配置（覆盖或创建）
+				with open(locale_conf_path, 'w', encoding='utf-8') as f:
+					f.write('LANG=zh_CN.UTF-8\n')
+					f.write('LC_ALL=zh_CN.UTF-8\n')
+				
+				info(tr(f'Locale configuration updated to Chinese at {locale_conf_path}'))
+				
+				# 生成中文语言环境
+				self.arch_chroot('locale-gen zh_CN.UTF-8')
+				
+				# 启用中文语言环境
+				self.arch_chroot('localectl set-locale LANG=zh_CN.UTF-8')
+				
+				info(tr('Default locale successfully set to Chinese (zh_CN.UTF-8)'))
+			else:
+				info(tr('Locale is already Chinese, skipping configuration'))
+			
+		except Exception as e:
+			error(tr(f'Failed to set default locale: {e}'))
+			raise
+	def _remove_devstation_user(self) -> None:
+		"""
+		在切根环境中删除 devstation 用户
+		"""
+		try:
+			info(f'正在删除 devstation 用户...')
+			# 使用 arch_chroot 在目标系统中执行命令
+			# 首先检查用户是否存在
+			result = self.arch_chroot('id devstation')
+			if result.exit_code == 0:
+				# 用户存在，删除用户及其主目录
+				self.arch_chroot('userdel -r devstation')
+				info(f'devstation 用户已删除')
+			else:
+				info(f'devstation 用户不存在，跳过删除')
+		except Exception as e:
+			warn(f'删除 devstation 用户时出错: {e}')
+			# 继续执行，不中断整个流程
+	
+	def _remove_installer_package(self) -> None:
+		"""
+		在切根环境中删除所有 heolleo 相关的软件包
+		"""
+		try:
+			info(tr('正在查找并删除所有 heolleo 相关的软件包...'))
+			# 使用 rpm -qa | grep heolleo 查找所有包含 heolleo 的包
+			result = self.arch_chroot('sh -c "rpm -qa | grep heolleo"')
+			if result.exit_code == 0 and result.trace_log:
+				# 获取所有找到的包名
+				packages = result.decode('utf-8').strip().split('\n')
+				packages = [pkg.strip() for pkg in packages if pkg.strip()]
+				
+				if packages:
+					info(tr(f'找到 {len(packages)} 个 heolleo 相关的包: {", ".join(packages)}'))
+					
+					# 逐个删除找到的包
+					for package in packages:
+						try:
+							info(f'正在删除包: {package}')
+							self.arch_chroot(f'rpm -e {package} --nodeps')
+							info(f'包 {package} 已删除')
+						except Exception as pkg_error:
+							warn(f'删除包 {package} 时出错: {pkg_error}')
+					
+					info(f'所有 heolleo 相关的软件包已删除')
+				else:
+					info(f'未找到任何 heolleo 相关的软件包')
+			else:
+				info(f'未找到任何 heolleo 相关的软件包，跳过删除')
+		except Exception as e:
+			warn(f'删除 heolleo 软件包时出错: {e}')
+			# 继续执行，不中断整个流程
+
+	def updategrub(self) -> bool:
+		info(f'updtae grub.cfg start')
+		try:
+			self.arch_chroot(f'grub2-mkconfig -o {self.GRUB_CFG_PATH}')
+			self.arch_chroot(f'cp {self.GRUB_CFG_PATH} {self.EFI_OPEN_EULER_PATH}')
+		except SysCallError as err:
+			raise DiskError(f'Could not update GRUB: {err}')
 
 	def set_timezone(self, zone: str) -> bool:
 		if not zone:
@@ -1068,23 +1263,6 @@ semodule -i gdm_policy.pp
 					if part in self._disk_encryption.partitions:
 						self._prepare_encrypt()
 
-		if ucode := self._get_microcode():
-			# 检查是否为openEuler系统
-			from .system_detection import SystemType
-			system_type = SystemType.detect()
-			
-			if system_type == 'openEuler':
-				# 在openEuler上，ucode是包名，直接添加到包列表
-				self._base_packages.append(ucode.name)
-			else:
-				# 在Arch Linux上，ucode是文件名，需要删除文件并添加包名
-				(self.target / 'boot' / ucode).unlink(missing_ok=True)
-				self._base_packages.append(ucode.stem)
-		else:
-			debug('Archinstall will not install any ucode.')
-
-		debug(f'Optional repositories: {optional_repositories}')
-
 		# This action takes place on the host system as pacstrap copies over package repository lists.
 		pacman_conf = PacmanConfig(self.target)
 		pacman_conf.enable(optional_repositories)
@@ -1096,18 +1274,6 @@ semodule -i gdm_policy.pp
 			cmd1= f'mount --bind /{fs} {self.target}/{fs}'
 			info(cmd1)
 			SysCommand(cmd1)        
-
-
-		# 创建local.repo
-		repo_source = Path("/etc/yum.repos.d/local.repo")
-		repo_content = """[local-repo]
-name=local
-baseurl=file:///run/initramfs/live
-enabled=1
-gpgcheck=0
-"""
-		with repo_source.open("w") as f:
-			f.write(repo_content)
 
 		# 创建selinux规则
 		se_script = Path("/etc/add_selinux_policy.sh")
@@ -1124,17 +1290,39 @@ gpgcheck=0
 		else:
 			self._log("警告: SELinux策略脚本不存在，跳过复制", "yellow")
 
-		# 复制repo文件
-		repo_dir = self.target / "etc/yum.repos.d"
-		repo_dir.mkdir(parents=True, exist_ok=True)
+		# 排除多路径设备
+		info(f'排除多路径设备')
 		self._run_command(["multipath", "-F"])
 
-		if repo_source.exists():
-			self._run_command(["cp", "-af", str(repo_source), str(repo_dir)])
-
-
-		info(f'installing packages {self._base_packages}')
-		self.pacman.strap(self._base_packages)
+		# 挂载squashfs.img, rootfs.img
+		self._mount_squashfs()
+		self._mount_rootfs()
+			
+		# 复制系统文件 - 智能优化版本
+		info(f'快速复制系统文件从 {self.ROOTFS_MOUNT_DIR}')
+		try:
+			info('使用优化的rsync方法')
+			# -a: 归档模式，保持文件属性
+			# -H: 保留硬链接
+			# -A: 保留ACL权限
+			# -X: 保留扩展属性
+			# --numeric-ids: 使用数字ID而不是用户名
+			# --progress: 显示进度
+			# --exclude: 排除不需要的目录
+			subprocess.run(f'rsync -aHAX --numeric-ids '\
+							f'--exclude=/dev/ '\
+							f'--exclude=/proc/ '\
+							f'--exclude=/sys/ '\
+							f'--exclude=/run/ '\
+							f'--exclude=/tmp/* '\
+							f'--exclude=/etc/machine-id '\
+							f'--exclude=/etc/machine-info '\
+							f'--exclude=/lost+found/ '\
+							f'--exclude=/var/log/* '\
+							f'{self.ROOTFS_MOUNT_DIR} {self.target}', shell=True, check=False)
+		except Exception as e:
+			# 对于 rsync 退出代码 23 表示部分传输，这是正常的，允许继续执行
+			warn(f'rsync completed with partial transfer, but continuing installation: {str(e)}')
 		
 		self._helper_flags['base-strapped'] = True
 
@@ -1164,9 +1352,6 @@ gpgcheck=0
 		# TODO: Use python functions for this
 		self.arch_chroot('chmod 700 /root')
 
-		if mkinitcpio and not self.mkinitcpio(['-P']):
-			error('Error generating initramfs (continuing anyway)')
-
 		self._helper_flags['base'] = True
 
 		# Run registered post-install hooks
@@ -1177,6 +1362,130 @@ gpgcheck=0
 		for plugin in plugins.values():
 			if hasattr(plugin, 'on_install'):
 				plugin.on_install(self)
+
+	def _get_available_loop_device(self) -> tuple[str, bool]:
+		"""查找可用的loop设备，返回(设备路径, 是否是新创建的)"""
+		import glob
+		from pathlib import Path
+		
+		# 首先尝试使用losetup -f来查找第一个空闲设备
+		try:
+			result = SysCommand('losetup -f', check=False)
+			if result.exit_code == 0:
+				available_loop = result.decode().strip()
+				if Path(available_loop).exists():
+					info(f"找到可用loop设备: {available_loop}")
+					return available_loop, False
+		except Exception:
+			pass
+		
+		# 如果没有找到可用设备，创建新的loop设备
+		# 查找所有已存在的loop设备
+		existing_loops = glob.glob('/dev/loop*')
+		
+		# 查找最大的loop编号
+		max_loop_num = 0
+		for loop_dev in existing_loops:
+			if loop_dev.startswith('/dev/loop') and loop_dev != '/dev/loop-control':
+				try:
+					loop_num = int(loop_dev.replace('/dev/loop', ''))
+					if loop_num > max_loop_num:
+						max_loop_num = loop_num
+				except ValueError:
+					continue
+		
+		# 创建新的loop设备
+		new_loop_num = max_loop_num + 1
+		new_loop_device = f'/dev/loop{new_loop_num}'
+		info(f"创建新的loop设备: {new_loop_device}")
+		SysCommand(f'mknod {new_loop_device} b 7 {new_loop_num}')
+		SysCommand(f'chmod 666 {new_loop_device}')
+		
+		return new_loop_device, True
+
+	def _is_mounted(self, mount_point: str) -> bool:
+		"""检查指定挂载点是否已经挂载"""
+		import os
+		try:
+			result = SysCommand(f'mountpoint -q {mount_point}', check=False)
+			return result.exit_code == 0
+		except Exception:
+			return False
+
+	def _mount_with_loop_device(self, image_path: str, mount_dir: str) -> None:
+		"""使用loop设备挂载镜像文件"""
+		from pathlib import Path
+		
+		# 获取可用的loop设备
+		loop_device_path, is_new_device = self._get_available_loop_device()
+		
+		if is_new_device:
+			# 如果是新创建的loop设备，需要先设置loop设备再挂载
+			info(f"设置新的loop设备 {loop_device_path} 到 {image_path}")
+			SysCommand(f'losetup {loop_device_path} {image_path}')
+			SysCommand(f'mount {loop_device_path} {mount_dir}')
+		else:
+			# 如果是已有的可用loop设备，直接挂载镜像文件
+			info(f"使用现有loop设备 {loop_device_path} 挂载 {image_path}")
+			SysCommand(f'mount {image_path} {mount_dir}')
+
+	def _mount_squashfs(self) -> None:
+		"""挂载squashfs.img镜像"""
+		import os
+		from pathlib import Path
+		
+		# 创建必要的目录（如果不存在）
+		liveos_dir = Path(self.LIVEOS_MOUNT_DIR)
+		if not liveos_dir.exists():
+			info("创建 LiveOS 目录...")
+			os.makedirs(self.LIVEOS_MOUNT_DIR)
+		else:
+			info("LiveOS 目录已存在，跳过创建")
+			# 如果目录已存在，检查是否已经挂载
+			if self._is_mounted(self.LIVEOS_MOUNT_DIR):
+				info("LiveOS 镜像已经挂载，跳过判断是否已挂载操作")
+				return
+		
+		# 挂载 LiveOS 镜像
+		info("挂载 LiveOS 镜像...")
+		squashfs_path = Path(self.SQUASHFS_IMAGE_PATH)
+		if not squashfs_path.exists():
+			error(f"错误: 找不到 squashfs.img 文件: {squashfs_path}")
+			raise RequirementError(f"找不到 squashfs.img 文件: {squashfs_path}")
+		
+		# 使用公共方法挂载镜像
+		self._mount_with_loop_device(str(squashfs_path), self.LIVEOS_MOUNT_DIR)
+
+	def _mount_rootfs(self) -> None:
+		"""挂载rootfs.img镜像"""
+		import os
+		from pathlib import Path
+
+		# 创建必要的目录（如果不存在）
+		rootfs_dir = Path(self.ROOTFS_MOUNT_DIR)
+		if not rootfs_dir.exists():
+			info("创建 rootfs 目录...")
+			os.makedirs(self.ROOTFS_MOUNT_DIR)
+		else:
+			info("rootfs 目录已存在，跳过创建")
+			# 如果目录已存在，检查是否已经挂载
+			if self._is_mounted(self.ROOTFS_MOUNT_DIR):
+				info("rootfs 镜像已经挂载，跳过判断是否已挂载操作")
+				return
+		
+		# 检查 rootfs 镜像文件
+		rootfs_path = Path(self.ROOTFS_IMAGE_PATH)
+		if not rootfs_path.exists():
+			error(f"错误: 找不到 rootfs.img 文件: {rootfs_path}")
+			# 卸载已挂载的squashfs
+			SysCommand(f'umount {self.LIVEOS_MOUNT_DIR}')
+			raise RequirementError(f"找不到 rootfs.img 文件: {rootfs_path}")
+		
+		# 挂载 rootfs 镜像
+		info("设置 rootfs 镜像...")
+		
+		# 使用公共方法挂载镜像
+		self._mount_with_loop_device(self.ROOTFS_IMAGE_PATH, self.ROOTFS_MOUNT_DIR)
 
 	def setup_btrfs_snapshot(
 		self,
@@ -1418,8 +1727,6 @@ gpgcheck=0
 		self.pacman.strap('efibootmgr')
 
 		from .system_detection import SystemType
-		if SystemType.detect() == 'openEuler':
-			self.pacman.strap('grub2')
 
 		if not SysInfo.has_uefi():
 			raise HardwareIncompatibilityError
@@ -1521,14 +1828,19 @@ gpgcheck=0
 	) -> None:
 		debug('Installing grub bootloader')
 
-		self.pacman.strap('grub2 grub2-efi-x64 grub2-efi-x64-modules grub2-pc shim efibootmgr')
-
 		boot_dir = Path('/boot')
+
+		# 确保目标目录存在
+		self.arch_chroot(f'mkdir -p {self.EFI_OPEN_EULER_PATH}')
 
 		command = [
 			'grub2-install',
 			'--debug', 
 		]
+
+		parent_dev_path = device_handler.get_parent_device_path(boot_partition.safe_dev_path)
+		if not parent_dev_path:
+			raise DiskError(f'Could not determine parent device for {boot_partition.dev_path}')
 
 		if SysInfo.has_uefi():
 			if not efi_partition:
@@ -1536,7 +1848,7 @@ gpgcheck=0
 
 			info(f'GRUB EFI partition: {efi_partition.dev_path}')
 
-			self.pacman.strap('efibootmgr')  # TODO: Do we need? Yes, but remove from minimal_installation() instead?
+			SysCommand(f'mount -t efivarfs efivarfs {self.target}{self.EFI_VARS_PATH}')
 
 			boot_dir_arg = []
 			if boot_partition.mountpoint and boot_partition.mountpoint != boot_dir:
@@ -1546,18 +1858,17 @@ gpgcheck=0
 
 			info(f'efi-directory: {boot_partition.mountpoint}')
 
-			info(f'efi-directory: {efi_partition.mountpoint}')
-
 			add_options = [
 				f'--target={platform.machine()}-efi',
 				f'--efi-directory={efi_partition.mountpoint}',
 				#*boot_dir_arg,
 				'--bootloader-id=openEuler',
 				'--removable',
-				str(boot_partition.dev_path),
+				str(parent_dev_path),
 			]
 
 			command.extend(add_options)
+			info(f'grub2 install command: {command}')
 
 			try:
 				self.arch_chroot(' '.join(command))
@@ -1567,10 +1878,6 @@ gpgcheck=0
 				
 		else:
 			info(f'GRUB boot partition: {boot_partition.dev_path}')
-
-			parent_dev_path = device_handler.get_parent_device_path(boot_partition.safe_dev_path)
-			if not parent_dev_path:
-				raise DiskError(f'Could not determine parent device for {boot_partition.dev_path}')
 
 			add_options = [
 				'--target=i386-pc',
@@ -1602,8 +1909,12 @@ gpgcheck=0
 
 		try:
 			info('grub2-mkconfig run start')
-			self.arch_chroot(f'grub2-mkconfig -o /boot/grub2/grub.cfg')
-			info('grub2-mkconfig run successfule')
+			self.arch_chroot(f'grub2-mkconfig -o {self.GRUB_CFG_PATH}')
+			self.arch_chroot(f'cp {self.GRUB_CFG_PATH} {self.EFI_OPEN_EULER_PATH}')
+			info('grub2-mkconfig run successful')
+			info(f'umount efivarfs start')
+			SysCommand(f'umount {self.target}{self.EFI_VARS_PATH}')
+			info('umount efivarfs successful')
 		except SysCallError as err:
 			raise DiskError(f'Could not configure GRUB: {err}')
 
@@ -1961,6 +2272,11 @@ gpgcheck=0
 	def _create_user(self, user: User) -> None:
 		# This plugin hook allows for the plugin to handle the creation of the user.
 		# Password and Group management is still handled by user_create()
+
+		# 首先删除用户，避免用户创建devstation用户从而导致误删除
+		info(f'remove devstation firstly')
+		self._remove_devstation_user()
+
 		handled_by_plugin = False
 		for plugin in plugins.values():
 			if hasattr(plugin, 'on_user_create'):
