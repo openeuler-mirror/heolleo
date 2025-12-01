@@ -68,9 +68,9 @@ class GlobalMenu(AbstractMenu[None]):
 		menu_options = [
 			MenuItem(
 				text=tr('Archinstall language'),
-				action=self._select_archinstall_language,
+				action=self._select_eulerinstall_language,
 				display_action=lambda x: x.display_name if x else '',
-				key='archinstall_language',
+				key='eulerinstall_language',
 			),
 			MenuItem(
 				text=tr('Locales'),
@@ -251,10 +251,10 @@ class GlobalMenu(AbstractMenu[None]):
 			return False
 		return self._validate_bootloader() is None
 
-	def _select_archinstall_language(self, preset: Language) -> Language:
-		from .interactions.general_conf import select_archinstall_language
+	def _select_eulerinstall_language(self, preset: Language) -> Language:
+		from .interactions.general_conf import select_eulerinstall_language
 
-		language = select_archinstall_language(translation_handler.translated_languages, preset)
+		language = select_eulerinstall_language(translation_handler.translated_languages, preset)
 		translation_handler.activate(language)
 
 		self._update_lang_text()

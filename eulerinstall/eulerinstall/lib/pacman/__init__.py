@@ -92,8 +92,8 @@ class Pacman:
 					'Could not sync openEuler package metadata',
 					'Could not sync openEuler mirrors',
 					self.run,
-					'makecache',
-					default_cmd='dnf',
+					'$?',
+					default_cmd='echo',
 				)
 			case _:
 				# 默认使用pacman
@@ -135,26 +135,12 @@ class Pacman:
 			case 'openEuler':
 				# 对于openEuler，我们需要先创建基本的系统结构
 				self._setup_openEuler_base()
-				# 自动检测主机openEuler版本
-				def get_openEuler_releasever():
-					import re
-					version_id = None
-					try:
-						with open('/etc/os-release') as f:
-							for line in f:
-								m = re.match(r'VERSION_ID="?([0-9]+)"?', line)
-								if m:
-									version_id = m.group(1)
-									break
-					except Exception:
-						pass
-					return version_id or '40'  # 默认40，可根据需要调整
-				releasever = get_openEuler_releasever()
+
 				self.ask(
 					'Could not install packages',
 					'DNF installation failed. See /var/log/archinstall/install.log or above message for error details',
 					SysCommand,
-					f'dnf --installroot={self.target} install --assumeyes --disablerepo=* --enablerepo=local-repo --nogpgcheck --setopt=sslverify=0 --releasever={releasever} {" ".join(mapped_packages)}',
+					f'dnf --installroot={self.target} install -y {" ".join(mapped_packages)}',
 					peek_output=True,
 				)
 			case _:

@@ -128,7 +128,7 @@ def select_language(preset: str | None = None) -> str | None:
 	return select_kb_layout(preset)
 
 
-def select_archinstall_language(languages: list[Language], preset: Language) -> Language:
+def select_eulerinstall_language(languages: list[Language], preset: Language) -> Language:
 	# these are the displayed language names which can either be
 	# the english name of a language or, if present, the
 	# name of the language in its own language
