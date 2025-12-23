@@ -92,11 +92,30 @@ const selectedDisk = computed(() => {
 
 watch(selectedDisk, (newDisk) => {
   if (newDisk) {
-    installInfo.partInfo = newDisk.partitions?.map(part => ({
-      ...part,
-      tag: part.name,
-      loadPoint: part.mountpoint || ''
-    })) || []
+    // 如果磁盘没有分区，创建一个空闲空间分区
+    if (!newDisk.partitions?.length) {
+      const freeSpacePartition = {
+        name: t('install.free_space'),
+        dev_path: `/dev/${newDisk.name}`,
+        size: newDisk.size.toString(),
+        fs_type: null,
+        mountpoint: null,
+        uuid: `free-${Date.now()}`,
+        flags: [],
+        start: 0,
+        type: '',
+        status: '',
+        tag: t('install.free_space'),
+        loadPoint: ''
+      }
+      installInfo.partInfo = [freeSpacePartition]
+    } else {
+      installInfo.partInfo = newDisk.partitions?.map(part => ({
+        ...part,
+        tag: part.name,
+        loadPoint: part.mountpoint || ''
+      })) || []
+    }
     installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
   }
 }, { immediate: true })

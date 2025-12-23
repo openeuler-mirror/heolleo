@@ -106,33 +106,64 @@ export class ConfigGenerator {
     const value = parseFloat(sizeMatch[1]);
     const unit = sizeMatch[2]?.toUpperCase();
 
+    let res = 0;
+
     switch (unit) {
       case 'G':
-        return value * 1024 * 1024 * 1024;
+        res = value * 1024 * 1024 * 1024;
+        break;
       case 'M':
-        return value * 1024 * 1024;
+        res = value * 1024 * 1024;
+        break;
       case 'K':
-        return value * 1024;
+        res = value * 1024;
+        break;
       default:
-        return value;
+        res = value;
+        break;
     }
+
+    return res - Math.abs(res % (1024 * 1024));  //1MiB对齐
+
   }
 
-  private static convertPartInfoToArchinstall(partInfo: PartInfo, sectorSize: number): any {
-    const sizeInBytes = this.parseSizeToBytes(partInfo.size);
+  private static async convertPartInfoToArchinstall(partInfo: PartInfo, sectorSize: number, diskDevice: string): Promise<any> {
 
+    console.log(`status:  ${partInfo.status}`)
     // 根据分区的挂载点动态生成 BTRFS 子卷配置
     const btrfs_subvolumes = (partInfo.fs_type === 'btrfs')
       ? this.generateBtrfsSubvolumes(partInfo.loadPoint)
       : [];
 
-    // 对于 delete 和 existing 状态的分区，保留原始的 dev_path；对于 create 状态，设置为 null
-    const dev_path = partInfo.status === 'create' ? null : partInfo.dev_path;
+    // 对于 delete 和 existing 状态，使用 sectors 作为单位，value 为实际起始扇区
+    // 对于 create 状态，使用 B 作为单位，value 为字节
+    const startUnit = (partInfo.status === 'delete' || partInfo.status === 'existing') ? 'sectors' : 'B';
+    
+    // 处理 start 值为 null 的情况，确保有合理的默认值
+    const originalStart = partInfo.start !== null ? partInfo.start : 0;
+    let startValue = originalStart;
+
+    // 对于 delete 和 existing 状态的分区，从磁盘系统获取实际的起始扇区
+    if (partInfo.status === 'delete' || partInfo.status === 'existing') {
+       startValue = Math.ceil(originalStart / sectorSize);
+    }
+
+    console.log(`${partInfo.fs_type} ========= ${partInfo.loadPoint}`);
+    const flagsArr: string[] = [];
+    if(partInfo.fs_type === 'fat32' || partInfo.loadPoint === '/boot' || partInfo.loadPoint === '/boot/efi'){
+      flagsArr.push('boot');
+      flagsArr.push('esp');
+    }
+
+    let dev_path_arg = partInfo.dev_path;
+    if(partInfo.status == 'create') {
+      dev_path_arg = null;
+    }
 
     return {
       btrfs: btrfs_subvolumes,
-      dev_path: dev_path,
-      flags: partInfo.flags || [],
+      dev_path: dev_path_arg,
+      flags: flagsArr,
       fs_type: partInfo.fs_type,
       mount_options: [],
       mountpoint: partInfo.loadPoint,
@@ -140,15 +171,15 @@ export class ConfigGenerator {
       size: {
         sector_size: { unit: 'B', value: sectorSize },
         unit: 'B',
-        value: sizeInBytes
+        value: partInfo.size
       },
       start: {
         sector_size: { unit: 'B', value: sectorSize },
-        unit: 'B',
-        value: partInfo.start
+        unit: startUnit,
+        value: startValue
       },
       status: partInfo.status,
-      type: partInfo.type || 'primary'
+      type: 'primary'
     };
   }
 
@@ -214,8 +245,8 @@ export class ConfigGenerator {
   }
 
   // 从 generateConfig 中提取磁盘布局信息，用于显示分区预览
-  static generatePartitionPreview(installInfo: InstallInfo): PartInfo[] {
-    const config = this.generateConfig(installInfo, 'en'); // 使用英文避免翻译问题
+  static async generatePartitionPreview(installInfo: InstallInfo): Promise<PartInfo[]> {
+    const config = await this.generateConfig(installInfo, 'en'); // 使用英文避免翻译问题
     const deviceModifications = config.disk_config.device_modifications;
     
     if (deviceModifications.length === 0) {
@@ -225,7 +256,7 @@ export class ConfigGenerator {
     const partitions = deviceModifications[0].partitions;
     const diskName = installInfo.disk.replace('/dev/', '');
     
-    return partitions.map((partition, index) => {
+    return partitions.map((partition: any, index: number) => {
       // 将 Archinstall 格式转换为 PartInfo 格式
       const sizeInBytes = typeof partition.size.value === 'string' 
         ? this.parseSizeToBytes(partition.size.value)
@@ -255,27 +286,57 @@ export class ConfigGenerator {
         type: partition.type,
         status: partition.status,
         tag: tag,
-        loadPoint: partition.mountpoint || ''
+        loadPoint: partition.mountpoint || '',
+        isDelete: partition.status
       };
     });
   }
 
-  static generateConfig(installInfo: InstallInfo, language: string = 'en'): ArchinstallConfig {
+  static async generateConfig(installInfo: InstallInfo, language: string = 'en'): Promise<ArchinstallConfig> {
     let deviceModifications = [];
     let disk_config;
     const totalDiskSizeInBytes = this.parseSizeToBytes(String(installInfo.diskSize));
 
+    // 获取实际的磁盘扇区大小
+    let actualSectorSize = installInfo.sector_size || 512;
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      try {
+        const sectorSizeResult = await (window as any).electronAPI.getDiskSectorSize({
+          diskDevice: installInfo.disk
+        });
+        if (sectorSizeResult.success) {
+          actualSectorSize = sectorSizeResult.sector_size.value;
+          console.log(`使用实际扇区大小: ${actualSectorSize} bytes`);
+        } else {
+          console.warn('获取扇区大小失败，使用默认值:', sectorSizeResult.error);
+        }
+      } catch (error) {
+        console.warn('调用扇区大小API失败，使用默认值:', error);
+      }
+    }
+
     if (installInfo.partitionType === 'auto') {
+      // 检测系统启动方式，确定EFI分区的挂载点
+      let efiMountPoint = "/boot"; // 默认使用/boot/efi
+      if (typeof window !== 'undefined' && (window as any).electronAPI) {
+        try {
+          const bootMode = await (window as any).electronAPI.getBootMode();
+          efiMountPoint = bootMode.mode === 'uefi' ? '/boot/efi' : '/boot';
+        } catch (error) {
+          console.warn('Failed to get boot mode, using default mount point:', error);
+        }
+      }
+
       const efiPartition = {
         btrfs: [],
         dev_path: null,
         flags: ["boot", "esp"],
         fs_type: "fat32",
         mount_options: [],
-        mountpoint: "/boot/efi",
+        mountpoint: efiMountPoint,
         obj_id: this.generateUUID(),
-        size: { sector_size: { unit: "B", value: installInfo.sector_size || 512 }, unit: "MiB", value: 512 },
-        start: { sector_size: { unit: "B", value: installInfo.sector_size || 512 }, unit: "MiB", value: 1 },
+        size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "MiB", value: 512 },
+        start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "MiB", value: 1 },
         status: "create",
         type: "primary"
       };
@@ -291,8 +352,8 @@ export class ConfigGenerator {
           mount_options: [],
           mountpoint: "/",
           obj_id: lvmPartitionId,
-          size: { sector_size: { unit: "B", value: installInfo.sector_size || 512 }, unit: "B", value: totalDiskSizeInBytes - (514 * 1024 * 1024) },
-          start: { sector_size: { unit: "B", value: installInfo.sector_size || 512 }, unit: "MiB", value: 513 },
+          size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: totalDiskSizeInBytes - (513 * 1024 * 1024) },  //
+          start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "MiB", value: 513 },
           status: "create",
           type: "primary"
         };
@@ -320,7 +381,7 @@ export class ConfigGenerator {
                   {
                     btrfs: [],
                     fs_type: "ext4",
-                    length: { sector_size: { unit: "B", value: installInfo.sector_size || 512 }, unit: "B", value: rootVolSize },
+                    length: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: rootVolSize },
                     mount_options: [],
                     mountpoint: "/",
                     name: "root",
@@ -330,7 +391,7 @@ export class ConfigGenerator {
                   {
                     btrfs: [],
                     fs_type: "ext4",
-                    length: { sector_size: { unit: "B", value: installInfo.sector_size || 512 }, unit: "B", value: homeVolSize },
+                    length: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: homeVolSize },
                     mount_options: [],
                     mountpoint: "/home",
                     name: "home",
@@ -352,8 +413,8 @@ export class ConfigGenerator {
           mount_options: [],
           mountpoint: "/",
           obj_id: this.generateUUID(),
-          size: { sector_size: { unit: "B", value: installInfo.sector_size || 512 }, unit: "B", value: totalDiskSizeInBytes - (514 * 1024 * 1024) },
-          start: { sector_size: { unit: "B", value: installInfo.sector_size || 512 }, unit: "MiB", value: 513 },
+          size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: totalDiskSizeInBytes - (514 * 1024 * 1024) },
+          start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "MiB", value: 513 },
           status: "create",
           type: "primary"
         };
@@ -372,82 +433,48 @@ export class ConfigGenerator {
       }
     } else {
       // 手动分区逻辑
-      if (installInfo.disk && installInfo.partInfo.length > 0) {
-        const initialPartsMap = new Map(installInfo.partInfoBefore.map(p => [p.uuid, p]));
-        const finalParts = installInfo.partInfo.filter(p => p.tag !== 'free_space');
-        const modifications: any[] = [];
-        let currentStart = 1024 * 1024; // 1MiB in bytes
-
-        // Track processed initial partitions to find the deleted ones later
-        const processedInitialUuids = new Set();
-
-        for (const finalPart of finalParts) {
-          const initialPart = initialPartsMap.get(finalPart.uuid);
-          
-          // Assign start value before processing
-          finalPart.start = currentStart;
-
-          if (initialPart) {
-            // Partition existed before, check for changes
-            processedInitialUuids.add(finalPart.uuid);
-            const sizeChanged = this.parseSizeToBytes(initialPart.size) !== this.parseSizeToBytes(finalPart.size);
-            const mountPointChanged = initialPart.loadPoint !== finalPart.loadPoint;
-            const fsTypeChanged = initialPart.fs_type !== finalPart.fs_type;
-
-            if (sizeChanged) {
-              // Size changed, treat as delete and create
-              initialPart.uuid = this.generateUUID(); // new uuid for old part
-              finalPart.uuid = this.generateUUID(); // new uuid for new part
-              modifications.push({ ...initialPart, status: 'delete' });
-              modifications.push({ ...finalPart, status: 'create' });
-            } else if (mountPointChanged || fsTypeChanged) {
-              // Size is the same, but other properties changed
-              // Check if this is a format operation (fs_type changed and mountpoint might have changed)
-              const isFormatOperation = fsTypeChanged && (mountPointChanged || initialPart.fs_type !== finalPart.fs_type);
-              
-              if (isFormatOperation) {
-                // Format operation: treat as delete and create
-                initialPart.uuid = this.generateUUID(); // new uuid for old part
-                finalPart.uuid = this.generateUUID(); // new uuid for new part
-                modifications.push({ ...initialPart, status: 'delete' });
-                modifications.push({ ...finalPart, status: 'create' });
-              } else {
-                // Just property changes, keep as existing
-                finalPart.uuid = this.generateUUID();
-                modifications.push({ ...finalPart, status: 'existing' });
-              }
-            } else {
-              // Partition is unchanged, but still need to include it in the configuration
-              modifications.push({ ...finalPart, status: 'existing' });
-            }
+      
+      // 获取实际的磁盘扇区大小
+      let actualSectorSize = installInfo.sector_size || 512;
+      if (typeof window !== 'undefined' && (window as any).electronAPI) {
+        try {
+          const sectorSizeResult = await (window as any).electronAPI.getDiskSectorSize({
+            diskDevice: installInfo.disk
+          });
+          if (sectorSizeResult.success) {
+            actualSectorSize = sectorSizeResult.sector_size.value;
+            console.log(`使用实际扇区大小: ${actualSectorSize} bytes`);
           } else {
-            // This is a new partition
-            finalPart.uuid = this.generateUUID();
-            modifications.push({ ...finalPart, status: 'create' });
+            console.warn('获取扇区大小失败，使用默认值:', sectorSizeResult.error);
           }
-          
-          // Update start for the next partition
-          currentStart += this.parseSizeToBytes(finalPart.size);
+        } catch (error) {
+          console.warn('调用扇区大小API失败，使用默认值:', error);
         }
-
-        // Find partitions that were in the initial list but not in the final one (or not processed)
-        for (const initialPart of installInfo.partInfoBefore) {
-          if (initialPart.tag !== 'free_space' && !processedInitialUuids.has(initialPart.uuid)) {
-             const isStillPresent = finalParts.some(p => p.uuid === initialPart.uuid);
-             if (!isStillPresent) {
-                modifications.push({ ...initialPart, status: 'delete' });
-             }
-          }
-        }
-        
-        deviceModifications.push({
-          device: installInfo.disk,
-          partitions: modifications.map(part =>
-            this.convertPartInfoToArchinstall(part, installInfo.sector_size || 512)
-          ),
-          wipe: false
-        });
       }
+
+      const finalParts = installInfo.partInfo.filter(p =>
+        p.status !== null ||
+        p.loadPoint // 只保留有挂载点的分区项
+      );
+      
+      // 对分区进行排序：delete → existing → create
+      const sortedModifications = finalParts.sort((a: any, b: any) => {
+        const statusOrder: Record<string, number> = { 'delete': 0, 'existing': 1, 'create': 2 };
+        const orderA = statusOrder[a.status] ?? 3; // 默认值处理未知状态
+        const orderB = statusOrder[b.status] ?? 3;
+        return orderA - orderB;
+      });
+
+      console.log('排序后的分区:', sortedModifications.map(p => ({ status: p.status, mountpoint: p.loadPoint })));
+
+      deviceModifications.push({
+        device: installInfo.disk,
+        partitions: await Promise.all(sortedModifications.map(part =>
+          this.convertPartInfoToArchinstall(part, actualSectorSize, installInfo.disk)
+        )),
+        wipe: false
+      });
+
       disk_config = {
         config_type: "manual_partitioning",
         device_modifications: deviceModifications,
@@ -511,29 +538,39 @@ export class ConfigGenerator {
   static async generateUserConfig(installInfo: InstallInfo): Promise<any> {
     const users = [];
     
-    // 添加普通用户
+    // 添加普通用户 - 使用加密后的密码
     if (installInfo.username && installInfo.password) {
-      const encryptedPassword = await PasswordUtils.generateArchinstallHash(installInfo.password);
-      users.push({
-        username: installInfo.username,
-        enc_password: encryptedPassword,
-        groups: [],
-        sudo: true
-      });
+      try {
+        const encryptedPassword = await PasswordUtils.encryptPassword(installInfo.password);
+        users.push({
+          username: installInfo.username,
+          enc_password: encryptedPassword, // 使用正确的字段名
+          groups: [],
+          sudo: true
+        });
+      } catch (error) {
+        console.error('Failed to encrypt user password:', error);
+        throw new Error('密码加密失败，请重试');
+      }
     }
     
-    // 生成root密码哈希
+    // 使用加密后的root密码
     // root用户就是管理员用户，使用管理员密码或普通用户密码
     const rootPassword = installInfo.adminPassword || installInfo.password;
     if (!rootPassword) {
       throw new Error('Root password is required');
     }
-    const rootEncPassword = await PasswordUtils.generateArchinstallHash(rootPassword);
     
-    return {
-      root_enc_password: rootEncPassword,
-      users: users
-    };
+    try {
+      const encryptedRootPassword = await PasswordUtils.encryptPassword(rootPassword);
+      return {
+        root_enc_password: encryptedRootPassword, // 使用正确的字段名
+        users: users
+      };
+    } catch (error) {
+      console.error('Failed to encrypt root password:', error);
+      throw new Error('root密码加密失败，请重试');
+    }
   }
 
   // 生成并导出用户配置文件

@@ -79,6 +79,15 @@ const sortedList = computed<LegendItem[]>(() => {
 
 const partitionWidths = computed(() => {
   const totalSize = sortedList.value.reduce((sum, p) => sum + Number(p.size), 0);
+  
+  // 如果总大小为0，但存在分区数据，则显示100%宽度的空闲分区
+  if (totalSize === 0 && sortedList.value.length > 0) {
+    return sortedList.value.map(p => ({
+      ...p,
+      width: '100%'
+    }));
+  }
+  
   if (totalSize === 0) return [];
 
   const minWidth = 3; // 3% minimum width

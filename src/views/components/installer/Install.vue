@@ -152,7 +152,7 @@ function prevStep() {
 async function startInstall() {
   isInstalling.value = true
   try {
-    const config = ConfigGenerator.generateConfig(installInfo, locale.value)
+    const config = await ConfigGenerator.generateConfig(installInfo, locale.value)
     
     // 保存archinstall配置文件
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')

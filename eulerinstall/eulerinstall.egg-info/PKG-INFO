@@ -1,0 +1,62 @@
+Metadata-Version: 2.4
+Name: eulerinstall
+Version: 3.0.9
+Summary: EulerOS installer - guided, templates etc.
+Author: Anton Hvornum
+Author-email: Anton Hvornum <anton@hvornum.se>
+License: GPL-3.0-only
+Project-URL: Home, https://openeuler.org
+Project-URL: Documentation, https://eulerinstall.readthedocs.io/
+Project-URL: Source, https://github.com/openeuler/eulerinstall
+Keywords: linux,euler,eulerinstall,installer
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Operating System :: POSIX :: Linux
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pyparted>=3.13.0
+Requires-Dist: pydantic==2.11.7
+Requires-Dist: cryptography>=42.0.2
+Requires-Dist: typing_extensions>=4.12.0
+Provides-Extra: log
+Requires-Dist: systemd_python==235; extra == "log"
+Provides-Extra: dev
+Requires-Dist: mypy==1.17.1; extra == "dev"
+Requires-Dist: flake8==7.3.0; extra == "dev"
+Requires-Dist: pre-commit==4.2.0; extra == "dev"
+Requires-Dist: ruff==0.12.7; extra == "dev"
+Requires-Dist: pylint==3.3.7; extra == "dev"
+Requires-Dist: pylint-pydantic==0.3.5; extra == "dev"
+Requires-Dist: pytest==8.4.1; extra == "dev"
+Provides-Extra: doc
+Requires-Dist: sphinx; extra == "doc"
+Dynamic: author
+Dynamic: license-file
+Dynamic: requires-python
+
+# EulerInstall
+
+EulerInstall is an installation tool for EulerOS.
+
+## Description
+
+This package provides installation utilities for EulerOS systems.
+
+## Installation
+
+Use the package manager to install eulerinstall:
+
+```bash
+pip install eulerinstall
+```
+
+## Usage
+
+```python
+import eulerinstall
+# Your code here
+```
+
+## License
+
+This project is licensed under the GPL-3.0 License - see the LICENSE file for details.
