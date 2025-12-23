@@ -28,7 +28,7 @@
         </el-form-item>
       </el-form>
       <div class="basic-setup-result" v-show="form.location">
-        {{ t('install.timezoneSetting', [form.location]) }}
+        {{ t('install.timezoneSetting', [getLocalizedTimezoneName(form.location)]) }}
       </div>
     </div>
   </div>
@@ -85,6 +85,23 @@ const locationList = computed(() => {
   })
 })
 
+
+// 获取本地化的时区名称
+function getLocalizedTimezoneName(timezone: string) {
+  if (!timezone) return ''
+  
+  const parts = timezone.split('/')
+  if (parts.length !== 2) return timezone
+  
+  const area = parts[0]
+  const location = parts[1]
+  
+  // 尝试获取本地化的时区名称
+  const localizedName = t(`timezone.${area}.${location}`)
+  
+  // 如果找到了本地化名称，使用它；否则使用原始时区代码
+  return localizedName !== `timezone.${area}.${location}` ? localizedName : timezone
+}
 
 const installInfo = inject(INSTALL_INFO_KEY) as Reactive<InstallInfo>
 async function checkValid() {

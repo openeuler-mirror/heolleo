@@ -2,18 +2,20 @@ import {InjectionKey, Reactive} from 'vue';
 
 export interface PartInfo {
   name: string;
-  dev_path: string;
-  size: string; // Keep as string as it comes from lsblk
-  fs_type: string | null;
+  dev_path: string | null;
+  size: string; 
+  fs_type: string | 'ext4';
   mountpoint: string | null;
   uuid: string | null;
   flags: string[];
-  start: number | null;
+  start: number | 1048576; // 默认起始于1MiB
   type: string; // 'primary', etc.
-  status: string; // 'existing'
+  status: string | null; // 'existing'
   tag: string; // for graph color and label
   loadPoint: string; // for graph
   label?: string;
+  shouldFormat?: boolean; // 是否格式化分区
+  isDelete: string | null;
 }
 export interface InstallInfo {
   timezone: string;
@@ -26,6 +28,12 @@ export interface InstallInfo {
   partInfoBefore: PartInfo[];
   useLvm: boolean;
   configPath: string;
+  userConfigPath?: string; // 用户配置文件路径
+  // 用户信息
+  username?: string;
+  password?: string;
+  adminPassword?: string;
+  isAdminSame?: boolean;
 }
 
 export const INSTALL_TYPES: Readonly<Map<string, string>> = new Map([

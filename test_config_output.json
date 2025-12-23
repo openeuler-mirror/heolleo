@@ -1,0 +1,85 @@
+{
+  "partitions": [
+    {
+      "btrfs": [],
+      "dev_path": "/dev/sda1",
+      "flags": [],
+      "fs_type": "ext4",
+      "mount_options": [],
+      "mountpoint": "/",
+      "obj_id": "uuid-1",
+      "size": {
+        "sector_size": {
+          "unit": "B",
+          "value": 512
+        },
+        "unit": "B",
+        "value": 20971520000
+      },
+      "start": {
+        "sector_size": {
+          "unit": "B",
+          "value": 512
+        },
+        "unit": "sectors",
+        "value": 2048
+      },
+      "status": "existing",
+      "type": "primary"
+    },
+    {
+      "btrfs": [],
+      "dev_path": "/dev/sda2",
+      "flags": [],
+      "fs_type": "ext4",
+      "mount_options": [],
+      "mountpoint": "/home",
+      "obj_id": "uuid-2",
+      "size": {
+        "sector_size": {
+          "unit": "B",
+          "value": 512
+        },
+        "unit": "B",
+        "value": 10485760000
+      },
+      "start": {
+        "sector_size": {
+          "unit": "B",
+          "value": 512
+        },
+        "unit": "sectors",
+        "value": 40960000
+      },
+      "status": "delete",
+      "type": "primary"
+    },
+    {
+      "btrfs": [],
+      "dev_path": null,
+      "flags": [],
+      "fs_type": "ext4",
+      "mount_options": [],
+      "mountpoint": "/var",
+      "obj_id": "uuid-3",
+      "size": {
+        "sector_size": {
+          "unit": "B",
+          "value": 512
+        },
+        "unit": "B",
+        "value": 5242880000
+      },
+      "start": {
+        "sector_size": {
+          "unit": "B",
+          "value": 512
+        },
+        "unit": "B",
+        "value": 6291456000
+      },
+      "status": "create",
+      "type": "primary"
+    }
+  ]
+}

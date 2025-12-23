@@ -1,0 +1,13 @@
+LICENSE
+README.md
+pyproject.toml
+setup.py
+eulerinstall.egg-info/PKG-INFO
+eulerinstall.egg-info/SOURCES.txt
+eulerinstall.egg-info/dependency_links.txt
+eulerinstall.egg-info/entry_points.txt
+eulerinstall.egg-info/requires.txt
+eulerinstall.egg-info/top_level.txt
+tests/test_args.py
+tests/test_configuration_output.py
+tests/test_mirrorlist.py

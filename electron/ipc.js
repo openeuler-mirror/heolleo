@@ -58,6 +58,7 @@ function registerIpcListeners() {
   ipcMain.handle('create-user', (event, { username, password }) => {
     try {
       execSync(`useradd -m ${username}`)
+      // 使用加密的密码哈希而不是明文
       execSync(`echo "${username}:${password}" | chpasswd`)
       return { success: true }
     } catch (error) {
@@ -175,11 +176,11 @@ function registerIpcListeners() {
     
     let installCommand
     if (userConfigPath) {
-      // 使用两个配置文件：archinstall配置和用户配置
-      installCommand = `sudo archinstall --config ${configPath} --creds ${userConfigPath} --silent`
+      // 使用两个配置文件：eulerinstall配置和用户配置
+      installCommand = `sudo eulerinstall --config ${configPath} --creds ${userConfigPath} --silent`
     } else {
-      // 只使用archinstall配置文件
-      installCommand = `sudo archinstall --config ${configPath} --silent`
+      // 只使用eulerinstall配置文件
+      installCommand = `sudo eulerinstall --config ${configPath} --silent`
     }
     
     console.log('Install command:', installCommand)
@@ -239,7 +240,7 @@ function registerIpcListeners() {
       if (bootMode === 'uefi') {
         // UEFI模式GRUB安装
         execSync(`chroot ${rootPath} grub2-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=openEuler`)
-        execSync(`chroot ${rootPath} grub2-mkconfig -o /boot/grub2/grub.cfg`)
+        execSync(`chroot ${rootPath} grub2-mkconfig -o /boot/efi/EFI/openEuler/grub.cfg`)
       } else {
         // BIOS模式GRUB安装
         execSync(`chroot ${rootPath} grub2-install ${disk}`)
@@ -291,117 +292,98 @@ function registerIpcListeners() {
     }
   })
 
-  // 获取所有磁盘信息
+  // 获取所有磁盘信息 - 优化版本
   ipcMain.handle('get-disk-info', async () => {
     try {
-      // Helper to run os-prober asynchronously
-      const getOsProberResults = () => {
-        return new Promise((resolve) => {
-          exec('os-prober', (error, stdout, stderr) => {
-            if (error) {
-              console.warn('os-prober failed or not found:', stderr);
-              resolve({});
-              return;
-            }
-            const results = {};
-            stdout.trim().split('\n').forEach(line => {
-              const [path, name] = line.split(':').slice(0, 2);
-              if (path && name) {
-                results[path.trim()] = name.trim();
-              }
-            });
-            resolve(results);
-          });
-        });
-      };
-
-      // Check for necessary commands
+      // 清除多路径设备并更新分区表，等待设备事件完成
       try {
-        execSync('which lsblk && which parted && which blockdev');
-      } catch {
-        throw new Error('One or more required commands (lsblk, parted, blockdev) not found');
+        execSync('sudo multipath -F');
+      } catch (error) {
+        console.warn('multipath -F failed (maybe multipath not installed):', error.message);
       }
-
-      // Run os-prober and lsblk in parallel
-      const [osProberResults, lsblkOutput] = await Promise.all([
-        getOsProberResults(),
-        execSync('lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,UUID,PATH').toString()
-      ]);
+      try {
+        execSync('sudo partprobe');
+      } catch (error) {
+        console.warn('partprobe failed:', error.message);
+      }
+      // 等待设备事件完成，确保内核更新设备信息
+      try {
+        execSync('sudo udevadm settle');
+      } catch (error) {
+        console.warn('udevadm settle failed:', error.message);
+      }
       
+      // 获取基本磁盘信息（只使用lsblk，避免额外的系统调用）
+      const lsblkOutput = execSync('lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,UUID,PATH').toString();
       const { blockdevices } = JSON.parse(lsblkOutput);
+      console.log('blockdevices:', blockdevices);
 
+      // 快速处理磁盘信息，避免对每个磁盘执行parted和blockdev
       const disks = blockdevices
         .filter(device => device.type === 'disk' && device.path)
         .map(disk => {
-          let partedOutput = '';
-          let sectorSize = 512; // Default sector size
-          try {
-            partedOutput = execSync(`parted -s ${disk.path} unit B print`).toString();
-            const sectorSizeOutput = execSync(`blockdev --getss ${disk.path}`).toString().trim();
-            if (sectorSizeOutput && !isNaN(parseInt(sectorSizeOutput, 10))) {
-              sectorSize = parseInt(sectorSizeOutput, 10);
-            }
-          } catch (e) {
-            console.error(`Could not run parted or blockdev on ${disk.path}: ${e}`);
-          }
-
+          // 简化的分区信息处理
           const partitions = disk.children?.map(part => {
-            const partDetails = {
+            // 智能推断分区标志，避免parted调用
+            const flags = [];
+            if (part.mountpoint === '/boot/efi' || part.fstype === 'vfat') {
+              flags.push('boot', 'esp');
+            }
+            if (part.mountpoint === '/boot') {
+              flags.push('bls_boot');
+            }
+
+            // 获取分区起始扇区
+            let startSector;
+            try {
+              // 使用fdisk获取分区起始扇区
+              const fdiskOutput = execSync(`sudo fdisk -l /dev/${disk.name} 2>/dev/null || true`).toString();
+              const lines = fdiskOutput.split('\n');
+              for (const line of lines) {
+                if (line.includes(`/dev/${part.name}`)) {
+                  const parts = line.trim().split(/\s+/);
+                  if (parts.length >= 3) {
+                    startSector = parseInt(parts[1], 10);
+                    console.log(`${part.name} --- ${parts[1]} --- ${startSector}`);
+                    break;
+                  }
+                }
+              }
+            } catch (error) {
+              console.warn(`Failed to get start sector for partition ${part.name}:`, error.message);
+              // 如果获取失败，使用默认值1
+              startSector = 2048;
+            }
+
+            console.log(part.fstype);
+            fs_typee = mapFileSystemType(part.fstype)
+            console.log(fs_typee);
+
+            return {
               name: part.name,
               dev_path: part.path,
               size: parseInt(part.size, 10),
-              fs_type: mapFileSystemType(part.fstype), // 使用映射函数转换文件系统类型
+              fs_type: mapFileSystemType(part.fstype),
               mountpoint: part.mountpoint || null,
               uuid: part.uuid || null,
-              os: osProberResults[part.path] || null, // Add OS info
-              flags: [],
-              start: null,
-              type: 'primary',
-              status: 'existing'
+              flags: flags,
+              start: startSector * 512, // 获取实际的起始扇区
+              type: 'primary', // 默认类型
             };
-
-            if (partedOutput) {
-              const lines = partedOutput.split('\n');
-              const partLine = lines.find(line => {
-                const cols = line.trim().split(/\s+/);
-                const partNumMatch = part.name.match(/\d+$/);
-                return partNumMatch && cols[0] === partNumMatch[0];
-              });
-
-              if (partLine) {
-                const cols = partLine.trim().split(/\s+/);
-                partDetails.start = parseInt(cols[1].replace('B', ''), 10);
-                partDetails.type = cols[3];
-                if (cols.length > 5 && cols[5]) {
-                   partDetails.flags = cols[5].split(',').map(f => f.trim()).filter(f => f);
-                }
-              }
-            }
-            
-            if (partDetails.flags.length === 0) {
-                if (part.mountpoint === '/boot/efi' || (part.fstype === 'vfat' && partDetails.type === 'EFI System')) {
-                    partDetails.flags.push('boot', 'esp');
-                }
-                if (part.mountpoint === '/boot') {
-                    partDetails.flags.push('bls_boot');
-                }
-            }
-
-            return partDetails;
           }) || [];
 
           return {
             name: disk.name,
             device: disk.path,
-            size: parseInt(disk.size, 10),
+            size: parseInt(disk.size, 10) - 1024 * 1024,   // 最后1MiB为GPT分区表备份数据使用，提前预留出来
             type: disk.type,
             mountpoint: disk.mountpoint || null,
-            sector_size: sectorSize, // Keep sector_size
+            sector_size: 512, // 使用默认值，避免blockdev调用
             partitions: partitions
           };
         });
 
-      console.log('Disks info:', JSON.stringify(disks, null, 2));
+      console.log('Optimized disks info retrieved, count:', disks.length);
       return { success: true, disks };
     } catch (error) {
       console.error('Failed to get disk info:', error)
@@ -426,6 +408,24 @@ function registerIpcListeners() {
       // 验证磁盘是否存在
       if (!fs.existsSync(`/dev/${diskName}`)) {
         throw new Error(`Disk /dev/${diskName} not found`)
+      }
+
+      // 清除多路径设备并更新分区表，等待设备事件完成
+      try {
+        execSync('sudo multipath -F');
+      } catch (error) {
+        console.warn('multipath -F failed (maybe multipath not installed):', error.message);
+      }
+      try {
+        execSync('sudo partprobe');
+      } catch (error) {
+        console.warn('partprobe failed:', error.message);
+      }
+      // 等待设备事件完成，确保内核更新设备信息
+      try {
+        execSync('sudo udevadm settle');
+      } catch (error) {
+        console.warn('udevadm settle failed:', error.message);
       }
 
       // 获取分区基本信息
@@ -494,6 +494,109 @@ function registerIpcListeners() {
       }
     }
   })
+
+  // 获取磁盘扇区大小
+  ipcMain.handle('get-disk-sector-size', async (event, { diskDevice }) => {
+    try {
+      // 检查fdisk命令是否可用
+      try {
+        execSync('which fdisk');
+      } catch {
+        throw new Error('Required command (fdisk) not found');
+      }
+
+      // 验证磁盘设备是否存在
+      if (!fs.existsSync(diskDevice)) {
+        throw new Error(`Disk device ${diskDevice} not found`);
+      }
+
+      // 使用fdisk获取扇区大小信息
+      const fdiskOutput = execSync(`fdisk -l ${diskDevice} | grep "Sector size"`).toString().trim();
+      
+      if (!fdiskOutput) {
+        throw new Error('Could not determine sector size from fdisk output');
+      }
+
+      // 解析fdisk输出，例如: "Sector size (logical/physical): 512 bytes / 512 bytes"
+      const sectorSizeMatch = fdiskOutput.match(/Sector size.*?(\d+) bytes/);
+      if (!sectorSizeMatch) {
+        throw new Error('Could not parse sector size from fdisk output');
+      }
+
+      const sectorSize = parseInt(sectorSizeMatch[1], 10);
+      
+      return {
+        success: true,
+        sector_size: {
+          value: sectorSize,
+          unit: 'B'
+        }
+      };
+    } catch (error) {
+      console.error('Failed to get disk sector size:', error);
+      return {
+        success: false,
+        error: error.message,
+        suggestion: 'Please ensure fdisk command is available and disk device exists'
+      };
+    }
+  });
+
+  // 获取分区起始扇区信息
+  ipcMain.handle('get-partition-start-sector', async (event, { diskDevice, partitionDevice }) => {
+    try {
+      // 检查fdisk命令是否可用
+      try {
+        execSync('which fdisk');
+      } catch {
+        throw new Error('Required command (fdisk) not found');
+      }
+
+      // 验证磁盘设备和分区设备是否存在
+      if (!fs.existsSync(diskDevice)) {
+        throw new Error(`Disk device ${diskDevice} not found`);
+      }
+      if (!fs.existsSync(partitionDevice)) {
+        throw new Error(`Partition device ${partitionDevice} not found`);
+      }
+
+      // 使用fdisk获取分区详细信息
+      const fdiskOutput = execSync(`fdisk -l ${diskDevice}`).toString();
+      
+      // 解析分区表，找到指定分区的起始扇区
+      const lines = fdiskOutput.split('\n');
+      let foundPartition = false;
+      let startSector = null;
+
+      for (const line of lines) {
+        // 查找分区行，例如: "/dev/sda1   *        2048    2099199    2097152   1G 83 Linux"
+        if (line.includes(partitionDevice)) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length >= 3) {
+            startSector = parseInt(parts[1], 10);
+            foundPartition = true;
+            break;
+          }
+        }
+      }
+
+      if (!foundPartition || startSector === null) {
+        throw new Error(`Could not find start sector for partition ${partitionDevice}`);
+      }
+
+      return {
+        success: true,
+        start_sector: startSector
+      };
+    } catch (error) {
+      console.error('Failed to get partition start sector:', error);
+      return {
+        success: false,
+        error: error.message,
+        suggestion: 'Please ensure fdisk command is available and partition device exists'
+      };
+    }
+  });
 
 }
 

@@ -17,7 +17,7 @@ export class PasswordUtils {
     // archinstall使用$y$格式的密码哈希
     // 这里我们使用bcrypt生成，然后转换为archinstall格式
     const hash = await bcrypt.hash(password, 12)
-    
+
     // 将bcrypt的$2b$格式转换为archinstall的$y$格式
     // archinstall期望的格式: $y$j9T$salt$hash
     const parts = hash.split('$')
@@ -26,7 +26,7 @@ export class PasswordUtils {
       const hashPart = parts[3].substring(22) // 剩余部分作为hash
       return `$y$j9T$${salt}$${hashPart}`
     }
-    
+
     return hash // 如果转换失败，返回原始hash
   }
 } 

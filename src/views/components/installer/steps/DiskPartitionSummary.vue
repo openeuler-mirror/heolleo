@@ -3,13 +3,13 @@
     <div class="summary-group">
       <div class="summary-label">{{ t('common.before') }}:</div>
       <div class="summary-content">
-        <PartitionGraph :data-list="beforeDisk.partitions" :height-px="24" />
+        <PartitionGraph :data-list="beforeDisk.partitions || []" :height-px="24" />
       </div>
     </div>
     <div class="summary-group">
       <div class="summary-label">{{ t('common.after') }}:</div>
       <div class="summary-content">
-        <PartitionGraph :data-list="afterDisk.partitions" :height-px="24" />
+        <PartitionGraph :data-list="afterDisk.partitions || []" :height-px="24" />
       </div>
     </div>
   </div>

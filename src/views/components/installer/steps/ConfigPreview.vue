@@ -15,7 +15,7 @@
           type="textarea"
           :rows="15"
           readonly
-          :placeholder="t('install.configLoading')"
+          :placeholder="isLoading ? t('install.configLoading') : ''"
         />
       </div>
 
@@ -24,7 +24,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, reactive } from 'vue'
+import { ref, inject, reactive, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant.ts'
@@ -33,15 +33,29 @@ import { ConfigGenerator } from '@/services/ConfigGenerator.ts'
 const { t, locale } = useI18n()
 
 const installInfo = inject(INSTALL_INFO_KEY, reactive({} as InstallInfo))
+const configJson = ref('')
+const isLoading = ref(true)
 
-const configJson = computed(() => {
+async function loadConfig() {
   try {
-    const config = ConfigGenerator.generateConfig(installInfo, locale.value)
-    return JSON.stringify(config, null, 2)
+    isLoading.value = true
+    const config = await ConfigGenerator.generateConfig(installInfo, locale.value)
+    configJson.value = JSON.stringify(config, null, 2)
   } catch (error) {
     console.error('Failed to generate config:', error)
-    return JSON.stringify({ error: 'Failed to generate configuration' }, null, 2)
+    configJson.value = JSON.stringify({ error: 'Failed to generate configuration' }, null, 2)
+  } finally {
+    isLoading.value = false
   }
+}
+
+onMounted(() => {
+  loadConfig()
+})
+
+// 监听安装信息变化，重新加载配置
+watch(() => [installInfo.disk, installInfo.partitionType, installInfo.useLvm], () => {
+  loadConfig()
 })
 
 

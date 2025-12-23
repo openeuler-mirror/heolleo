@@ -1,0 +1,2 @@
+[console_scripts]
+eulerinstall = eulerinstall:run_as_a_module
