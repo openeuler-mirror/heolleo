@@ -73,6 +73,7 @@ class Installer:
 	ROOTFS_MOUNT_DIR = '/tmp/rootfs/'
 	SQUASHFS_IMAGE_PATH = '/run/initramfs/live/LiveOS/squashfs.img'
 	ROOTFS_IMAGE_PATH = '/tmp/LiveOS/LiveOS/rootfs.img'
+	AUDIT_LOG_DIR = '/var/log/audit'
 	
 	# 引导相关常量
 	GRUB_CFG_PATH = '/boot/grub2/grub.cfg'
@@ -762,6 +763,7 @@ class Installer:
 		在切根环境中处理 devstation 相关清理工作
 		1. 完全删除 devstation 用户
 		2. 删除 installer 安装工具
+		3. 创建审计日志目录
 		"""
 		info(f'开始清理 devstation 相关配置...')
 		
@@ -773,8 +775,24 @@ class Installer:
 
 		# 卸载目录挂载点 umount
 		self._umount_points()
+
+		# 创建审计日志目录
+		self._create_audit_log_dir()
 		
 		info(f'devstation 相关清理完成')
+
+	def _create_audit_log_dir(self) -> None:
+		"""
+		在切根环境中创建审计日志目录 /var/log/audit
+		"""
+		info(f'正在创建审计日志目录 {self.AUDIT_LOG_DIR}...')
+		try:
+			self.arch_chroot(f'mkdir -p {self.AUDIT_LOG_DIR}')
+			self.arch_chroot(f'chmod 666 {self.AUDIT_LOG_DIR}')
+			info(f'审计日志目录 {self.AUDIT_LOG_DIR} 创建完成')
+		except SysCallError as e:
+			error(f'创建审计日志目录失败: {e}')
+			# 不抛出异常，避免影响后续清理流程
 
 	def _umount_points(self) -> None:
 		"""卸载所有挂载点"""

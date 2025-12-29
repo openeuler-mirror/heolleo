@@ -121,8 +121,8 @@ class DeviceHandler:
 				fs_type = self._determine_fs_type(partition, lsblk_info)
 				subvol_infos = []
 
-				if fs_type == FilesystemType.Btrfs:
-					subvol_infos = self.get_btrfs_info(partition.path, lsblk_info)
+				#if fs_type == FilesystemType.Btrfs:
+				#	subvol_infos = self.get_btrfs_info(partition.path, lsblk_info)
 
 				partition_infos.append(
 					_PartitionInfo.from_partition(

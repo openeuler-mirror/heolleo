@@ -1,20 +1,59 @@
 {
-  "name": "vue-electron-chat",
-  "version": "0.0.0",
+  "name": "heolleo",
+  "version": "0.1.0",
   "private": true,
+  "description": "An installer application for Heolleo OS",
+  "author": {
+    "name": "Heolleo Team",
+    "email": "team@heolleo.org"
+  },
+  "homepage": "https://www.heolleo.org",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "electron:start": "electron .",
-    "electron:dev-prep": "cross-env NODE_ENV=development electron .",
+    "electron:start": "electron . --no-sandbox",
+    "electron:dev-prep": "cross-env NODE_ENV=development electron . --no-sandbox",
     "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 -t 5s && npm run electron:dev-prep\"",
-    "start": "npm run build && npm run electron:start"
+    "start": "npm run build && npm run electron:start",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.heolleo.app",
+    "productName": "Heolleo",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://example.com/downloads"
+      }
+    ],
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "public/slides",
+        "to": "slides"
+      }
+    ],
+    "linux": {
+      "target": [
+        "rpm"
+      ],
+      "category": "Utility",
+      "maintainer": "Heolleo Team <team@heolleo.org>"
+    }
   },
   "main": "electron/main.js",
   "dependencies": {
     "@computing/opendesign-icons": "file:./lib/opendesign-icons-1.0.5.tgz",
     "@computing/opendesign2": "file:./lib/opendesign2-2.0.23.tgz",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.2",
     "element-plus": "2.6.3",
     "vue": "^3.5.13",
     "vue-i18n": "^11.1.5",
@@ -26,6 +65,7 @@
     "concurrently": "^8.0.0",
     "cross-env": "^7.0.3",
     "electron": "^28.0.0",
+    "electron-builder": "^26.0.12",
     "sass": "^1.75.0",
     "typescript": "^5.0.0",
     "unplugin-auto-import": "^19.3.0",

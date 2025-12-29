@@ -3,16 +3,16 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "archinstall"
+name = "eulerinstall"
 version = "3.0.9"
-description = "Arch Linux installer - guided, templates etc."
+description = "EulerOS installer - guided, templates etc."
 authors = [
     {name = "Anton Hvornum", email = "anton@hvornum.se"},
 ]
 license = {text = "GPL-3.0-only"}
 readme = "README.md"
 requires-python = ">=3.11"
-keywords = ["linux", "arch", "archinstall", "installer"]
+keywords = ["linux", "euler", "eulerinstall", "installer"]
 classifiers = [
     "Programming Language :: Python :: 3.12",
     "Operating System :: POSIX :: Linux",
@@ -20,14 +20,14 @@ classifiers = [
 dependencies = [
     "pyparted>=3.13.0",
     "pydantic==2.11.7",
-    "cryptography>=44.0.2",
+    "cryptography>=42.0.2",
     "typing_extensions>=4.12.0",
 ]
 
 [project.urls]
-Home = "https://archlinux.org"
-Documentation = "https://archinstall.readthedocs.io/"
-Source = "https://github.com/archlinux/archinstall"
+Home = "https://openeuler.org"
+Documentation = "https://eulerinstall.readthedocs.io/"
+Source = "https://github.com/openeuler/eulerinstall"
 
 [project.optional-dependencies]
 log = ["systemd_python==235"]
@@ -43,7 +43,7 @@ dev = [
 doc = ["sphinx"]
 
 [project.scripts]
-archinstall = "archinstall:run_as_a_module"
+eulerinstall = "eulerinstall:run_as_a_module"
 
 [tool.setuptools.dynamic]
 readme = {file = ["README.rst", "USAGE.rst"]}
@@ -53,7 +53,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 # We could specify locales/languages.json etc instead, but catchall works too.
-"archinstall" = [
+"eulerinstall" = [
     "**/*.py",
     "**/*.mo",
     "**/*.po",
@@ -62,7 +62,7 @@ include-package-data = true
 ]
 
 [tool.setuptools.package-dir]
-archinstall = "archinstall"
+eulerinstall = "eulerinstall"
 
 [tool.mypy]
 python_version = "3.12"
@@ -89,33 +89,33 @@ strict = true
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = "archinstall.default_profiles.*"
+module = "eulerinstall.default_profiles.*"
 disallow_any_explicit = true
 
 [[tool.mypy.overrides]]
-module = "archinstall.examples.*"
+module = "eulerinstall.examples.*"
 disallow_any_explicit = true
 
 [[tool.mypy.overrides]]
-module = "archinstall.lib.*"
+module = "eulerinstall.lib.*"
 warn_return_any = false
 
 [[tool.mypy.overrides]]
-module = "archinstall.lib.disk.*"
+module = "eulerinstall.lib.disk.*"
 # 'Any' imports are allowed because pyparted doesn't have type hints
 disallow_any_unimported = false
 
 [[tool.mypy.overrides]]
-module = "archinstall.lib.models.*"
+module = "eulerinstall.lib.models.*"
 # 'Any' imports are allowed because pyparted doesn't have type hints
 disallow_any_unimported = false
 
 [[tool.mypy.overrides]]
-module = "archinstall.lib.packages"
+module = "eulerinstall.lib.packages"
 disallow_any_explicit = true
 
 [[tool.mypy.overrides]]
-module = "archinstall.lib.utils"
+module = "eulerinstall.lib.utils"
 disallow_any_explicit = true
 
 [[tool.mypy.overrides]]
@@ -125,7 +125,7 @@ module = [
 ignore_missing_imports = true
 
 [tool.bandit]
-targets = ["archinstall"]
+targets = ["eulerinstall"]
 exclude = ["/tests"]
 
 [tool.pytest.ini_options]
