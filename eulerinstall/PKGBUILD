@@ -4,15 +4,14 @@
 # Contributor: Anton Hvornum <anton@hvornum.se>
 # Contributor: demostanis worlds <demostanis@protonmail.com>
 
-pkgname=archinstall
+pkgname=eulerinstall
 pkgver=3.0.9
 pkgrel=1
-pkgdesc="Just another guided/automated Arch Linux installer with a twist"
+pkgdesc="EulerOS installer - guided, templates etc."
 arch=(any)
-url="https://github.com/archlinux/archinstall"
+url="https://github.com/openeuler/eulerinstall"
 license=(GPL-3.0-only)
 depends=(
-  'arch-install-scripts'
   'btrfs-progs'
   'coreutils'
   'cryptsetup'
@@ -49,9 +48,9 @@ makedepends=(
 optdepends=(
   'python-systemd: Adds journald logging'
 )
-provides=(python-archinstall archinstall)
-conflicts=(python-archinstall archinstall-git)
-replaces=(python-archinstall archinstall-git)
+provides=(python-eulerinstall eulerinstall)
+conflicts=(python-eulerinstall eulerinstall-git)
+replaces=(python-eulerinstall eulerinstall-git)
 source=(
   $pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz
   $pkgname-$pkgver.tar.gz.sig::$url/releases/download/$pkgver/$pkgname-$pkgver.tar.gz.sig
@@ -68,7 +67,7 @@ check() {
 pkgver() {
   cd $pkgname-$pkgver
 
-  awk '$1 ~ /^__version__/ {gsub("\"", ""); print $3}' archinstall/__init__.py
+  awk '$1 ~ /^__version__/ {gsub("\"", ""); print $3}' eulerinstall/__init__.py
 }
 
 build() {
@@ -82,5 +81,5 @@ package() {
   cd "$pkgname-$pkgver"
 
   python -m installer --destdir="$pkgdir" dist/*.whl
-  install -vDm 644 docs/_build/man/archinstall.1 -t "$pkgdir/usr/share/man/man1/"
+  install -vDm 644 docs/_build/man/eulerinstall.1 -t "$pkgdir/usr/share/man/man1/"
 }
