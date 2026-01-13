@@ -74,6 +74,7 @@ class Installer:
 	SQUASHFS_IMAGE_PATH = '/run/initramfs/live/LiveOS/squashfs.img'
 	ROOTFS_IMAGE_PATH = '/tmp/LiveOS/LiveOS/rootfs.img'
 	AUDIT_LOG_DIR = '/var/log/audit'
+	SELINUX_DIR = '/sys/fs/selinux'
 	
 	# 引导相关常量
 	GRUB_CFG_PATH = '/boot/grub2/grub.cfg'
@@ -773,11 +774,11 @@ class Installer:
 		# 设置默认语言环境为中文
 		self._set_locale_default()
 
-		# 卸载目录挂载点 umount
-		self._umount_points()
-
 		# 创建审计日志目录
 		self._create_audit_log_dir()
+
+		# 卸载目录挂载点 umount
+		self._umount_points()
 		
 		info(f'devstation 相关清理完成')
 
@@ -787,8 +788,11 @@ class Installer:
 		"""
 		info(f'正在创建审计日志目录 {self.AUDIT_LOG_DIR}...')
 		try:
+			SysCommand(f'mkdir -p {self.target}{self.SELINUX_DIR}')
+			SysCommand(['sh', '-c', f'mount -t selinuxfs selinuxfs {self.target}{self.SELINUX_DIR} 2>/dev/null || true'])
+			info(f'{self.target}{self.SELINUX_DIR}')
 			self.arch_chroot(f'mkdir -p {self.AUDIT_LOG_DIR}')
-			self.arch_chroot(f'chmod 666 {self.AUDIT_LOG_DIR}')
+			self.arch_chroot(f'restorecon -R -v {self.AUDIT_LOG_DIR}')
 			info(f'审计日志目录 {self.AUDIT_LOG_DIR} 创建完成')
 		except SysCallError as e:
 			error(f'创建审计日志目录失败: {e}')
@@ -815,6 +819,11 @@ class Installer:
 			info(f"成功卸载并删除 LiveOS 挂载点")
 		except Exception as e:
 			error(f"卸载 LiveOS 挂载点失败: {e}")
+
+		try:
+			SysCommand(f'umount -l {self.target}{self.SELINUX_DIR} 2>/dev/null')
+		except Exception as e:
+			error(f"卸载挂载点{self.SELINUX_DIR}失败: {e}")
 		
 		info("所有挂载点卸载完成")
 
@@ -1930,9 +1939,10 @@ semodule -i gdm_policy.pp
 			self.arch_chroot(f'grub2-mkconfig -o {self.GRUB_CFG_PATH}')
 			self.arch_chroot(f'cp {self.GRUB_CFG_PATH} {self.EFI_OPEN_EULER_PATH}')
 			info('grub2-mkconfig run successful')
-			info(f'umount efivarfs start')
-			SysCommand(f'umount {self.target}{self.EFI_VARS_PATH}')
-			info('umount efivarfs successful')
+			if SysInfo.has_uefi():
+				info(f'umount efivarfs start')
+				SysCommand(f'umount {self.target}{self.EFI_VARS_PATH}')
+				info('umount efivarfs successful')
 		except SysCallError as err:
 			raise DiskError(f'Could not configure GRUB: {err}')
 

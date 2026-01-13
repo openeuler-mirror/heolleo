@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 
 from .output import debug
 
@@ -85,50 +84,30 @@ def crypt_yescrypt(plaintext: str) -> str:
 	return crypt_hash.decode('utf-8')
 
 
-def _get_fernet(salt: bytes, password: str) -> Fernet:
-	# https://cryptography.io/en/latest/hazmat/primitives/key-derivation-functions/#argon2id
-	kdf = Argon2id(
-		salt=salt,
-		length=32,
-		iterations=1,
-		lanes=4,
-		memory_cost=64 * 1024,
-		ad=None,
-		secret=None,
-	)
-
-	key = base64.urlsafe_b64encode(
-		kdf.derive(
-			password.encode('utf-8'),
-		),
-	)
-
-	return Fernet(key)
-
-
 def encrypt(password: str, data: str) -> str:
-	salt = os.urandom(16)
-	f = _get_fernet(salt, password)
+	"""
+	Simple encryption function using Fernet with password-derived key.
+	This is a simplified version that doesn't use Argon2id for key derivation.
+	"""
+	# Use a simple key derivation: hash the password and use it as the key
+	import hashlib
+	key = base64.urlsafe_b64encode(hashlib.sha256(password.encode()).digest())
+	f = Fernet(key)
 	token = f.encrypt(data.encode('utf-8'))
-
-	encoded_token = base64.urlsafe_b64encode(token).decode('utf-8')
-	encoded_salt = base64.urlsafe_b64encode(salt).decode('utf-8')
-
-	return f'$argon2id${encoded_salt}${encoded_token}'
+	return base64.urlsafe_b64encode(token).decode('utf-8')
 
 
 def decrypt(data: str, password: str) -> str:
-	_, algo, encoded_salt, encoded_token = data.split('$')
-	salt = base64.urlsafe_b64decode(encoded_salt)
-	token = base64.urlsafe_b64decode(encoded_token)
-
-	if algo != 'argon2id':
-		raise ValueError(f'Unsupported algorithm {algo!r}')
-
-	f = _get_fernet(salt, password)
+	"""
+	Simple decryption function using Fernet with password-derived key.
+	This is a simplified version that doesn't use Argon2id for key derivation.
+	"""
+	import hashlib
+	key = base64.urlsafe_b64encode(hashlib.sha256(password.encode()).digest())
+	f = Fernet(key)
+	token = base64.urlsafe_b64decode(data)
 	try:
 		decrypted = f.decrypt(token)
 	except InvalidToken:
 		raise ValueError('Invalid password')
-
 	return decrypted.decode('utf-8')
