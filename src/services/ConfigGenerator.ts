@@ -453,7 +453,7 @@ export class ConfigGenerator {
       }
 
       const finalParts = installInfo.partInfo.filter(p =>
-        p.status !== null ||
+        p.status == 'delete' || p.status == 'existing' || p.status == 'create' ||
         p.loadPoint // 只保留有挂载点的分区项
       );
       

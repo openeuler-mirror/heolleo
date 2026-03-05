@@ -32,7 +32,7 @@ from ..models.device import (
 	Size,
 	Unit,
 )
-from ..output import debug, info
+from ..output import debug, info, error
 from .device_handler import device_handler
 from ..general import SysCommand
 from ..exceptions import SysCallError
