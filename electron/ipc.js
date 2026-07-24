@@ -268,20 +268,31 @@ function registerIpcListeners() {
     try {
       const resolvedPath = path.resolve(filepath)
       
+      let realPath
+      try {
+        realPath = fs.realpathSync(resolvedPath, { encoding: 'utf8' })
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          realPath = resolvedPath
+        } else {
+          throw err
+        }
+      }
+      
       const SENSITIVE_PATHS = [
         '/etc', '/usr', '/bin', '/sbin', '/boot', '/lib', '/lib64',
         '/var', '/root', '/home', '/dev', '/proc', '/sys', '/opt'
       ]
       
       for (const sensitivePath of SENSITIVE_PATHS) {
-        if (resolvedPath.startsWith(sensitivePath)) {
-          console.error(`Path rejected: ${resolvedPath} is in sensitive directory ${sensitivePath}`)
+        if (realPath.startsWith(sensitivePath)) {
+          console.error(`Path rejected: ${resolvedPath} resolves to ${realPath} which is in sensitive directory ${sensitivePath}`)
           return { success: false, error: '路径被拒绝：禁止写入系统敏感目录' }
         }
       }
       
-      if (!resolvedPath.startsWith('/tmp/')) {
-        console.error(`Path rejected: ${resolvedPath} is not under /tmp/`)
+      if (!realPath.startsWith('/tmp/')) {
+        console.error(`Path rejected: ${resolvedPath} resolves to ${realPath} which is not under /tmp/`)
         return { success: false, error: '路径被拒绝：仅允许保存至 /tmp 目录' }
       }
       
@@ -290,7 +301,12 @@ function registerIpcListeners() {
         fs.mkdirSync(dir, { recursive: true })
       }
       
-      fs.writeFileSync(resolvedPath, content, 'utf8')
+      const fd = fs.openSync(resolvedPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW, 0o600)
+      try {
+        fs.writeFileSync(fd, content, 'utf8')
+      } finally {
+        fs.closeSync(fd)
+      }
       return { success: true }
     } catch (error) {
       console.error('Failed to save config file:', error)
