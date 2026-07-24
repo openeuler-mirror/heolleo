@@ -281,12 +281,12 @@ def test_deprecated_creds_config_parsing(
 	arch_config = handler.config
 
 	assert arch_config.auth_config is not None
-	assert arch_config.auth_config.root_enc_password == Password(plaintext='rootPwd')
+	assert arch_config.auth_config.root_enc_password == Password(plaintext='{{ROOT_PASSWORD}}')
 
 	assert arch_config.auth_config.users == [
 		User(
 			username='user_name',
-			password=Password(plaintext='userPwd'),
+			password=Password(plaintext='{{ROOT_PASSWORD}}'),
 			sudo=True,
 			groups=['wheel'],
 		),
