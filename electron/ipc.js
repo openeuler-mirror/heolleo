@@ -54,18 +54,6 @@ function registerIpcListeners() {
     app.quit()
   })
 
-  // 用户管理
-  ipcMain.handle('create-user', (event, { username, password }) => {
-    try {
-      execSync(`useradd -m ${username}`)
-      // 使用加密的密码哈希而不是明文
-      execSync(`echo "${username}:${password}" | chpasswd`)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
-  })
-
   // 卸载磁盘核心逻辑
   function unmountDisk(disk) {
     try {
