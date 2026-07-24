@@ -278,13 +278,31 @@ function registerIpcListeners() {
   // 保存配置文件
   ipcMain.handle('save-config-file', async (event, { filepath, content }) => {
     try {
-      // 确保目录存在
-      const dir = path.dirname(filepath)
+      const resolvedPath = path.resolve(filepath)
+      
+      const SENSITIVE_PATHS = [
+        '/etc', '/usr', '/bin', '/sbin', '/boot', '/lib', '/lib64',
+        '/var', '/root', '/home', '/dev', '/proc', '/sys', '/opt'
+      ]
+      
+      for (const sensitivePath of SENSITIVE_PATHS) {
+        if (resolvedPath.startsWith(sensitivePath)) {
+          console.error(`Path rejected: ${resolvedPath} is in sensitive directory ${sensitivePath}`)
+          return { success: false, error: '路径被拒绝：禁止写入系统敏感目录' }
+        }
+      }
+      
+      if (!resolvedPath.startsWith('/tmp/')) {
+        console.error(`Path rejected: ${resolvedPath} is not under /tmp/`)
+        return { success: false, error: '路径被拒绝：仅允许保存至 /tmp 目录' }
+      }
+      
+      const dir = path.dirname(resolvedPath)
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true })
       }
       
-      fs.writeFileSync(filepath, content, 'utf8')
+      fs.writeFileSync(resolvedPath, content, 'utf8')
       return { success: true }
     } catch (error) {
       console.error('Failed to save config file:', error)
