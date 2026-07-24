@@ -58,16 +58,6 @@ def perform_installation(mountpoint: Path) -> None:
 		profile_config = ProfileConfiguration(MinimalProfile())
 		profile_handler.install_profile_config(installation, profile_config)
 
-		user = User('devel', Password(plaintext='devel'), False)
-		installation.create_users(user)
-
-	# Once this is done, we output some useful information to the user
-	# And the installation is complete.
-	info('There are two new accounts in your installation after reboot:')
-	info(' * root (password: airoot)')
-	info(' * devel (password: devel)')
-
-
 def _minimal() -> None:
 	with Tui():
 		disk_config = DiskLayoutConfigurationMenu(disk_layout_config=None).run()
