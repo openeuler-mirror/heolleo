@@ -111,6 +111,3 @@ with Installer(
 # In this case, we install a minimal profile that is empty
 profile_config = ProfileConfiguration(MinimalProfile())
 profile_handler.install_profile_config(installation, profile_config)
-
-user = User('archinstall', Password(plaintext='password'), True)
-installation.create_users(user)
