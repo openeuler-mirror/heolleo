@@ -286,7 +286,7 @@ def test_deprecated_creds_config_parsing(
 	assert arch_config.auth_config.users == [
 		User(
 			username='user_name',
-			password=Password(plaintext='{{ROOT_PASSWORD}}'),
+			password=Password(plaintext='{{USER_PASSWORD}}'),
 			sudo=True,
 			groups=['wheel'],
 		),
