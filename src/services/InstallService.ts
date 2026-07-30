@@ -43,6 +43,9 @@ class InstallService {
   public async createUser(config: UserConfig): Promise<boolean> {
     this.status.value = 'creating_user'
     try {
+      if (config.username.toLowerCase() === 'root') {
+        throw new Error('root属于默认的系统用户，禁止创建')
+      }
       const result = await window.electronAPI.invoke('create-user', config)
       this.progress.value += 20
       return result.success
