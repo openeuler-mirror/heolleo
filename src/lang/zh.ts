@@ -79,6 +79,8 @@ export default {
     admin_password: '管理员密码',
     install_failed: '安装失败',
     close: '关闭',
+    reboot: '重启',
+    root_user_forbidden: 'root 属于默认的系统用户，请使用其他用户名',
     password_mismatch: '密码确认不匹配',
     admin_password_mismatch: '管理员密码确认不匹配',
     password_required: '密码为必填项',

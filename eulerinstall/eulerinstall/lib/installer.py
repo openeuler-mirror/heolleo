@@ -73,8 +73,6 @@ class Installer:
 	ROOTFS_MOUNT_DIR = '/tmp/rootfs/'
 	SQUASHFS_IMAGE_PATH = '/run/initramfs/live/LiveOS/squashfs.img'
 	ROOTFS_IMAGE_PATH = '/tmp/LiveOS/LiveOS/rootfs.img'
-	AUDIT_LOG_DIR = '/var/log/audit'
-	SELINUX_DIR = '/sys/fs/selinux'
 	
 	# 引导相关常量
 	GRUB_CFG_PATH = '/boot/grub2/grub.cfg'
@@ -774,9 +772,6 @@ class Installer:
 		# 设置默认语言环境为中文
 		self._set_locale_default()
 
-		# 创建审计日志目录
-		self._create_audit_log_dir()
-
 		# 全系统 SELinux 重标（首次启动时自动执行）
 		self._relabel_selinux_full()
 
@@ -785,8 +780,40 @@ class Installer:
 
 		# 卸载目录挂载点 umount
 		self._umount_points()
+
+		# 处理gdm用户
+		self._add_gdm_greeter_user()
 		
 		info(f'devstation 相关清理完成')
+
+	def _add_gdm_greeter_user(self) -> None:
+		"""
+		在切根环境中添加 gdm 服务用户
+		"""
+		info(f'正在添加 gdm 服务用户...')
+		try:
+			# 检查用户是否已存在
+			try:
+				self.arch_chroot('id gdm-greeter')
+				info(f'gdm-greeter 用户已存在，跳过创建')
+				return
+			except SysCallError:
+				# 用户不存在，继续创建流程
+				pass
+		
+			# 先检查 nologin shell 的正确路径
+			nologin_path = '/sbin/nologin'
+			if not (self.target / nologin_path.lstrip('/')).exists():
+				nologin_path = '/usr/sbin/nologin'
+		
+			self.arch_chroot(f'useradd -r -s {nologin_path} gdm-greeter')
+			info(f'gdm-greeter 用户创建成功')
+		except SysCallError as e:
+			error(f'添加 gdm 服务用户失败: {e}')
+			# 不抛出异常，避免影响后续清理流程
+		except Exception as e:
+			error(f'添加 gdm 服务用户时发生未知错误: {e}')
+			# 不抛出异常，避免影响后续清理流程
 
 	def _set_network(self) -> None:
 		"""
@@ -946,7 +973,7 @@ class Installer:
 				os.chmod(keyfile, 0o600)
 
 			info(f'网络设置完成，安装后系统启动时将自动启用网络')
-		except SysCallError as e:
+		except (SysCallError, OSError) as e:
 			error(f'设置网络失败: {e}')
 			# 不抛出异常，避免影响后续清理流程
 
@@ -983,22 +1010,6 @@ class Installer:
 			except OSError:
 				continue
 		return count
-
-	def _create_audit_log_dir(self) -> None:
-		"""
-		在切根环境中创建审计日志目录 /var/log/audit
-		"""
-		info(f'正在创建审计日志目录 {self.AUDIT_LOG_DIR}...')
-		try:
-			SysCommand(f'mkdir -p {self.target}{self.SELINUX_DIR}')
-			SysCommand(['sh', '-c', f'mount -t selinuxfs selinuxfs {self.target}{self.SELINUX_DIR} 2>/dev/null || true'])
-			info(f'{self.target}{self.SELINUX_DIR}')
-			self.arch_chroot(f'mkdir -p {self.AUDIT_LOG_DIR}')
-			self.arch_chroot(f'restorecon -R -v {self.AUDIT_LOG_DIR}')
-			info(f'审计日志目录 {self.AUDIT_LOG_DIR} 创建完成')
-		except SysCallError as e:
-			error(f'创建审计日志目录失败: {e}')
-			# 不抛出异常，避免影响后续清理流程
 
 	def _relabel_selinux_full(self) -> None:
 		"""
@@ -1044,11 +1055,6 @@ class Installer:
 			info(f"成功卸载并删除 LiveOS 挂载点")
 		except Exception as e:
 			error(f"卸载 LiveOS 挂载点失败: {e}")
-
-		try:
-			SysCommand(f'umount -l {self.target}{self.SELINUX_DIR} 2>/dev/null')
-		except Exception as e:
-			error(f"卸载挂载点{self.SELINUX_DIR}失败: {e}")
 		
 		info("所有挂载点卸载完成")
 
@@ -1107,8 +1113,6 @@ class Installer:
 			info(f'正在删除 devstation 用户...')
 			# 使用 arch_chroot 在目标系统中执行命令
 			# 首先检查用户是否存在
-			self.arch_chroot('useradd -r -s /sbin/nologin gdm-greeter')
-			self.arch_chroot('restorecon -Rv /')
 			result = self.arch_chroot('id devstation')
 			if result.exit_code == 0:
 				# 用户存在，删除用户及其主目录

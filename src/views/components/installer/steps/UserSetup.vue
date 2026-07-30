@@ -178,6 +178,12 @@ async function checkValid() {
     return false
   }
 
+  // 验证用户名不能为 root
+  if (form.username.toLowerCase() === 'root') {
+    ElMessage.error(t('install.root_user_forbidden'))
+    return false
+  }
+
   // 验证密码确认
   if (form.password !== form.confirmPassword) {
     ElMessage.error(t('install.password_mismatch'))

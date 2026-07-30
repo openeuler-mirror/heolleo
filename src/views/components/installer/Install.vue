@@ -46,6 +46,14 @@
       </div>
       <div class="footer-right" v-else>
         <el-button
+          v-if="!installFailed && !isInstalling"
+          type="primary"
+          size="small"
+          @click="rebootSystem"
+        >
+          {{ t('install.reboot') }}
+        </el-button>
+        <el-button
           type="primary"
           size="small"
           :loading="isInstalling"
@@ -209,6 +217,18 @@ function finishInstall() {
 function closeApp() {
   const ipc = window.electron?.ipcRenderer
   ipc?.send('close-app')
+}
+
+async function rebootSystem() {
+  try {
+// 扩展Window类型以避免TypeScript类型检查错误
+    const ipc = (window as Window & { electron?: { ipcRenderer: any } }).electron?.ipcRenderer
+    if (ipc) {
+      await ipc.invoke('reboot-system')
+    }
+  } catch (error) {
+    console.error('Reboot failed:', error)
+  }
 }
 </script>
 
