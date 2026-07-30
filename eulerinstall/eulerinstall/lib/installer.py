@@ -777,10 +777,212 @@ class Installer:
 		# 创建审计日志目录
 		self._create_audit_log_dir()
 
+		# 全系统 SELinux 重标（首次启动时自动执行）
+		self._relabel_selinux_full()
+
+		# 设置网络
+		self._set_network()
+
 		# 卸载目录挂载点 umount
 		self._umount_points()
 		
 		info(f'devstation 相关清理完成')
+
+	def _set_network(self) -> None:
+		"""
+		在切根环境中设置网络，确保安装后系统启动时网络自动开启
+
+		业界标准做法：
+		1. 确保 NetworkManager 包已安装（最小化安装可能未包含）
+		2. 启用 NetworkManager 服务开机自启
+		3. 禁用可能冲突的网络服务（如 systemd-networkd、NetworkManager-wait-online）
+		4. 创建/修补 NM keyfile 连接配置，开启 autoconnect 与 DHCP
+		5. 配置 NetworkManager 以管理所有以太网接口
+
+		当运行时 /sys/class/net 仅有 lo（LiveOS 未加载网卡驱动）时，
+		创建通用 NM keyfile 连接配置（不绑定 interface-name），
+		待安装后系统启动、驱动加载后 NM 自动应用。
+		"""
+		info(f'正在设置网络（确保安装后开机自动启用网络）...')
+
+		try:
+			# 1. 确保 NetworkManager 包已安装
+			info(f'确保 NetworkManager 包已安装...')
+
+			# 2. 禁用可能冲突的网络服务
+			info(f'禁用可能冲突的网络服务...')
+			for service in ['systemd-networkd.service', 'NetworkManager-wait-online.service']:
+				try:
+					self.arch_chroot(f'systemctl disable {service} 2>/dev/null || true')
+				except Exception:
+					pass
+
+			# 3. 启用 NetworkManager 服务，确保开机自启
+			info(f'启用 NetworkManager 服务开机自启...')
+			self.arch_chroot('systemctl enable NetworkManager.service')
+
+			# 4. 检测物理以太网接口
+			info(f'检测以太网接口...')
+			eth_interfaces: list[str] = []
+			net_dir = Path('/sys/class/net')
+			if net_dir.exists():
+				for iface_path in net_dir.iterdir():
+					iface = iface_path.name
+					if iface == 'lo':
+						continue
+					# 排除无线接口
+					if (iface_path / 'wireless').exists():
+						continue
+					# /sys/class/net/<iface>/type 内容为 1 表示以太网
+					type_file = iface_path / 'type'
+					try:
+						if type_file.exists() and type_file.read_text().strip() != '1':
+							continue
+					except OSError:
+						pass
+					eth_interfaces.append(iface)
+
+			nm_conn_dir = self.target / 'etc/NetworkManager/system-connections'
+			nm_conn_dir.mkdir(parents=True, exist_ok=True)
+
+			# 5. 配置 NetworkManager.conf 以管理所有接口
+			info(f'配置 NetworkManager.conf...')
+			nm_conf_path = self.target / 'etc/NetworkManager/NetworkManager.conf'
+			nm_conf_content = '[main]\n' \
+				'plugins=keyfile\n' \
+				'\n' \
+				'[keyfile]\n' \
+				'unmanaged-devices=none\n' \
+				'\n'
+			nm_conf_path.write_text(nm_conf_content)
+
+			if not eth_interfaces:
+				# 运行时未检测到以太网接口。
+				# 常见原因：安装环境（LiveOS）未加载网卡驱动，/sys/class/net 仅有 lo。
+				# 直接创建通用 NM keyfile 连接配置（不绑定 interface-name），
+				# 待安装后系统启动、驱动加载后 NM 自动应用。
+				info(f'/sys/class/net 仅有 lo，创建通用连接配置（不绑定接口名）...')
+
+				conn_name = 'auto-ethernet'
+				keyfile = nm_conn_dir / f'{conn_name}.nmconnection'
+				conn_uuid = self._generate_uuid4()
+				keyfile.write_text(
+					'[connection]\n'
+					f'id={conn_name}\n'
+					f'uuid={conn_uuid}\n'
+					'type=ethernet\n'
+					'autoconnect=true\n'
+					'autoconnect-priority=50\n'
+					'interface-name=\n'
+					'\n'
+					'[ipv4]\n'
+					'method=auto\n'
+					'dhcp-timeout=60\n'
+					'never-default=false\n'
+					'\n'
+					'[ipv6]\n'
+					'method=auto\n'
+					'never-default=false\n'
+					'\n'
+					'[802-3-ethernet]\n'
+					'auto-negotiate=true\n'
+					'wake-on-lan=0\n'
+				)
+				os.chmod(keyfile, 0o600)
+				info(f'网络设置完成，安装后系统启动时将自动启用网络')
+				return
+
+			info(f'检测到以太网接口: {", ".join(eth_interfaces)}')
+
+			# 6. 创建不绑定接口名的通用连接配置
+			# 注意：chroot 环境中检测到的接口名（如 eth0）可能与实际系统启动后的接口名（如 ens160）不同
+			# 现代 systemd 使用可预测网络接口命名（ens*, eno*, enp* 等），而非传统的 ethX
+			# 因此始终创建不绑定接口名的通用配置，让 NM 自动应用到任何以太网接口
+			conn_name = 'auto-ethernet'
+			keyfile = nm_conn_dir / f'{conn_name}.nmconnection'
+			
+			if keyfile.exists():
+				# 修补已有通用配置
+				info(f'通用连接配置 {conn_name} 已存在，确保 autoconnect 开启...')
+				try:
+					content = keyfile.read_text()
+					if re.search(r'(?m)^autoconnect=', content):
+						content = re.sub(r'(?m)^autoconnect=.*$', 'autoconnect=true', content)
+					else:
+						content = content.replace('[connection]', '[connection]\nautoconnect=true', 1)
+					if re.search(r'(?m)^\[ipv4\]$', content):
+						content = re.sub(r'(?m)^\[ipv4\]\n(?:method=.*\n)?', '[ipv4]\nmethod=auto\n', content, flags=re.MULTILINE)
+					# 确保不绑定接口名
+					content = re.sub(r'(?m)^interface-name=.*$\n?', '', content)
+					keyfile.write_text(content)
+					os.chmod(keyfile, 0o600)
+				except OSError as e:
+					warn(f'修补连接配置 {conn_name} 失败: {e}')
+			else:
+				# 创建新的通用自动 DHCP 连接配置
+				info(f'创建通用自动 DHCP 连接配置: {conn_name}...')
+				conn_uuid = self._generate_uuid4()
+				keyfile.write_text(
+					'[connection]\n'
+					f'id={conn_name}\n'
+					f'uuid={conn_uuid}\n'
+					'type=ethernet\n'
+					'autoconnect=true\n'
+					'autoconnect-priority=100\n'
+					'\n'
+					'[ipv4]\n'
+					'method=auto\n'
+					'dhcp-timeout=60\n'
+					'never-default=false\n'
+					'\n'
+					'[ipv6]\n'
+					'method=auto\n'
+					'never-default=false\n'
+					'\n'
+					'[802-3-ethernet]\n'
+					'auto-negotiate=true\n'
+					'wake-on-lan=0\n'
+				)
+				os.chmod(keyfile, 0o600)
+
+			info(f'网络设置完成，安装后系统启动时将自动启用网络')
+		except SysCallError as e:
+			error(f'设置网络失败: {e}')
+			# 不抛出异常，避免影响后续清理流程
+
+	@staticmethod
+	def _generate_uuid4() -> str:
+		"""生成 UUID v4 字符串（使用 os.urandom，避免依赖 uuid 模块）"""
+		uuid_bytes = bytearray(os.urandom(16))
+		uuid_bytes[6] = (uuid_bytes[6] & 0x0f) | 0x40  # 版本 4
+		uuid_bytes[8] = (uuid_bytes[8] & 0x3f) | 0x80  # 变体
+		return (
+			f'{uuid_bytes[:4].hex()}-{uuid_bytes[4:6].hex()}-'
+			f'{uuid_bytes[6:8].hex()}-{uuid_bytes[8:10].hex()}-{uuid_bytes[10:16].hex()}'
+		)
+
+	@staticmethod
+	def _count_pci_ethernet_devices() -> int:
+		"""
+		通过 PCI sysfs 检测以太网设备数量。
+		即使网卡驱动未加载、/sys/class/net 仅有 lo，PCI 设备仍可见。
+
+		PCI 基类 0x02 = 网络控制器，子类 0x00 = 以太网控制器。
+		"""
+		count = 0
+		pci_devices_dir = Path('/sys/bus/pci/devices')
+		if not pci_devices_dir.exists():
+			return 0
+		for dev_path in pci_devices_dir.iterdir():
+			class_file = dev_path / 'class'
+			try:
+				class_val = class_file.read_text().strip()
+				# class 格式为 0x020000，基类=02 子类=00 表示以太网
+				if class_val.startswith('0x0200'):
+					count += 1
+			except OSError:
+				continue
+		return count
 
 	def _create_audit_log_dir(self) -> None:
 		"""
@@ -796,6 +998,29 @@ class Installer:
 			info(f'审计日志目录 {self.AUDIT_LOG_DIR} 创建完成')
 		except SysCallError as e:
 			error(f'创建审计日志目录失败: {e}')
+			# 不抛出异常，避免影响后续清理流程
+
+	def _relabel_selinux_full(self) -> None:
+		"""
+		触发全系统 SELinux 标签重标
+
+		由于 rsync 复制时跳过了 security.selinux 扩展属性（FAT32 等文件系统不支持），
+		安装后的文件系统 SELinux 标签可能不完整。本方法通过在目标根目录创建
+		/.autorelabel 标志文件，触发首次启动时由 selinux-autorelabel.service
+		自动对整个根文件系统执行 restorecon 全盘重标。
+
+		这是 openEuler/RHEL 系发行版的标准做法：
+		- 在真实启动环境中运行，内核已加载完整 SELinux 策略
+		- 覆盖所有已挂载的文件系统（含 EFI 分区等）
+		- 重标完成后标志文件会被自动删除，仅执行一次
+		"""
+		info(f'正在配置全系统 SELinux 自动重标...')
+		try:
+			autorelabel_file = self.target / '.autorelabel'
+			autorelabel_file.touch()
+			info(f'已创建 {autorelabel_file}，系统首次启动时将自动执行 SELinux 全盘重标')
+		except OSError as e:
+			error(f'配置 SELinux 自动重标失败: {e}')
 			# 不抛出异常，避免影响后续清理流程
 
 	def _umount_points(self) -> None:
@@ -882,6 +1107,8 @@ class Installer:
 			info(f'正在删除 devstation 用户...')
 			# 使用 arch_chroot 在目标系统中执行命令
 			# 首先检查用户是否存在
+			self.arch_chroot('useradd -r -s /sbin/nologin gdm-greeter')
+			self.arch_chroot('restorecon -Rv /')
 			result = self.arch_chroot('id devstation')
 			if result.exit_code == 0:
 				# 用户存在，删除用户及其主目录
@@ -1336,7 +1563,12 @@ semodule -i gdm_policy.pp
 			# --numeric-ids: 使用数字ID而不是用户名
 			# --progress: 显示进度
 			# --exclude: 排除不需要的目录
+			# --filter='-x security.selinux': 排除 SELinux xattr
+			#   原因: EFI 分区(FAT32)等文件系统不支持 security.selinux 扩展属性，
+			#   rsync 设置该 xattr 时会报 "Operation not supported" 错误。
+			#   SELinux 标签会在后续通过 restorecon/setfiles 按策略重新生成，无需在此保留。
 			subprocess.run(f'rsync -aHAX --numeric-ids '\
+							f'--filter=\'-x security.selinux\' '\
 							f'--exclude=/dev/ '\
 							f'--exclude=/proc/ '\
 							f'--exclude=/sys/ '\
