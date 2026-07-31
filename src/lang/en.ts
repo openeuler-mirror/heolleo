@@ -79,6 +79,8 @@ export default {
     admin_password: 'Admin Password',
     install_failed: 'Install Failed',
     close: 'Close',
+    reboot: 'Reboot',
+    root_user_forbidden: 'root is a default system user, please use another username',
     password_mismatch: 'Password confirmation does not match',
     admin_password_mismatch: 'Admin password confirmation does not match',
     password_required: 'Password is required',
