@@ -783,6 +783,9 @@ class Installer:
 
 		# 处理gdm用户
 		self._add_gdm_greeter_user()
+
+		# 处理dns主机名解析问题
+		self._handle_dns_hostname_resolution()
 		
 		info(f'devstation 相关清理完成')
 
@@ -813,6 +816,88 @@ class Installer:
 			# 不抛出异常，避免影响后续清理流程
 		except Exception as e:
 			error(f'添加 gdm 服务用户时发生未知错误: {e}')
+			# 不抛出异常，避免影响后续清理流程
+
+	def _handle_dns_hostname_resolution(self) -> None:
+		"""
+		修复主机名解析问题，防止 DNF 等程序因 DNS 查询超时而卡顿。
+		
+		原理：
+			1. 直接从目标环境的 /etc/hostname 读取主机名
+			2. 构建 FQDN（主机名 + 域名后缀）
+			3. 确保目标环境的 /etc/hosts 中包含主机名和 FQDN 指向 127.0.0.1
+		
+		注意：本方法直接在宿主机上操作目标环境的文件，不依赖切根环境中的命令
+		"""
+		info(f'正在修复主机名解析...')
+		try:
+			# 1. 直接从目标环境的 /etc/hostname 读取主机名
+			hostname = ''
+			hostname_path = self.target / 'etc/hostname'
+			if hostname_path.exists():
+				with open(hostname_path, 'r') as f:
+					hostname = f.read().strip()
+			
+			# 如果 /etc/hostname 为空，使用默认主机名
+			if not hostname:
+				hostname = 'localhost'
+			
+			info(f"目标环境主机名: {hostname}")
+			
+			# 2. 构建 FQDN（不依赖切根环境中的命令）
+			# 先尝试从目标环境的 /etc/resolv.conf 获取域名后缀
+			domain_suffix = 'localdomain'
+			resolv_conf_path = self.target / 'etc/resolv.conf'
+			if resolv_conf_path.exists():
+				with open(resolv_conf_path, 'r') as f:
+					for line in f:
+						if line.lower().startswith('domain'):
+							parts = line.split()
+							if len(parts) >= 2:
+								domain_suffix = parts[1].strip()
+								break
+			
+			# 构建 FQDN
+			fqdn = f"{hostname}.{domain_suffix}"
+			info(f"目标环境 FQDN: {fqdn}")
+			
+			# 3. 直接读取目标环境的 /etc/hosts 内容
+			hosts_path = self.target / 'etc/hosts'
+			if not hosts_path.exists():
+				info("/etc/hosts 文件不存在，跳过修改")
+				return
+			
+			with open(hosts_path, 'r') as f:
+				hosts_content = f.read()
+			
+			# 4. 检查是否已存在主机名或 FQDN 的条目
+			has_hostname = hostname in hosts_content
+			has_fqdn = fqdn in hosts_content
+			
+			if has_hostname and has_fqdn:
+				info("主机名和 FQDN 已在 /etc/hosts 中，无需修改")
+				return
+			
+			# 5. 直接在宿主机上修改目标环境的 /etc/hosts
+			if not has_hostname and not has_fqdn:
+				# 两者都缺失，追加新行
+				new_entry = f"127.0.0.1   {hostname} {fqdn}\n"
+				with open(hosts_path, 'a') as f:
+					f.write(new_entry)
+				info(f"已添加主机名解析: 127.0.0.1 {hostname} {fqdn}")
+			elif has_hostname and not has_fqdn:
+				# 已有主机名但缺少 FQDN，在主机名所在行追加 FQDN
+				with open(hosts_path, 'r') as f:
+					lines = f.readlines()
+				
+				with open(hosts_path, 'w') as f:
+					for line in lines:
+						if hostname in line and not line.strip().endswith(fqdn):
+							line = line.rstrip() + f" {fqdn}\n"
+						f.write(line)
+				info(f"已在 /etc/hosts 中追加 FQDN: {fqdn}")
+		except Exception as e:
+			error(f'修复主机名解析失败: {e}')
 			# 不抛出异常，避免影响后续清理流程
 
 	def _set_network(self) -> None:
