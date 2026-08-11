@@ -343,12 +343,23 @@ function registerIpcListeners() {
       // 获取当前系统根文件系统所在的磁盘设备
       function getRootDiskDevice() {
         try {
-          const mountOutput = execSync('mount | grep " / "').toString().trim();
+          // 使用更精确的匹配，避免误匹配子目录挂载点（如 /home、/boot）
+          const mountOutput = execSync('mount | grep " on / type"').toString().trim();
           const parts = mountOutput.split(/\s+/);
           if (parts.length > 0) {
             const rootDevice = parts[0];
             if (rootDevice.startsWith('/dev/')) {
-              const deviceName = rootDevice.replace('/dev/', '').replace(/[0-9]+$/, '');
+              // 优先使用 lsblk PKNAME 获取父设备名，可靠处理 NVMe/MMC/SCSI/SATA/LVM 等命名
+              try {
+                const pkname = execSync(`lsblk -no PKNAME ${rootDevice}`).toString().trim();
+                if (pkname) {
+                  return pkname;
+                }
+              } catch (e) {
+                console.warn('Failed to get PKNAME via lsblk:', e.message);
+              }
+              // 回退：手动剥离分区后缀，正确处理 NVMe(nvme0n1p2)、MMC(mmcblk0p1)、SCSI/SATA(sda1)
+              const deviceName = rootDevice.replace('/dev/', '').replace(/p?\d+$/, '');
               return deviceName;
             }
           }
