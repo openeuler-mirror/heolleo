@@ -340,9 +340,31 @@ function registerIpcListeners() {
       const { blockdevices } = JSON.parse(lsblkOutput);
       console.log('blockdevices:', blockdevices);
 
+      // 获取当前系统根文件系统所在的磁盘设备
+      function getRootDiskDevice() {
+        try {
+          const mountOutput = execSync('mount | grep " / "').toString().trim();
+          const parts = mountOutput.split(/\s+/);
+          if (parts.length > 0) {
+            const rootDevice = parts[0];
+            if (rootDevice.startsWith('/dev/')) {
+              const deviceName = rootDevice.replace('/dev/', '').replace(/[0-9]+$/, '');
+              return deviceName;
+            }
+          }
+          return null;
+        } catch (error) {
+          console.warn('Failed to get root disk device:', error.message);
+          return null;
+        }
+      }
+
+      const rootDiskDevice = getRootDiskDevice();
+      console.log('Root disk device:', rootDiskDevice);
+
       // 快速处理磁盘信息，避免对每个磁盘执行parted和blockdev
       const disks = blockdevices
-        .filter(device => device.type === 'disk' && device.path)
+        .filter(device => device.type === 'disk' && device.path && (rootDiskDevice === null || device.name !== rootDiskDevice))
         .map(disk => {
           // 简化的分区信息处理
           const partitions = disk.children?.map(part => {
