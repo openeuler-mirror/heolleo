@@ -29,7 +29,6 @@ export default {
     installType: 'Install Type',
     complete: 'Complete',
     start_install: 'Start Installation',
-    minInstall: 'Minimize Install',
     devStation: 'DevStation',
     area: 'Area',
     areaPlaceholder: 'Select area',

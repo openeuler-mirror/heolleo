@@ -16,16 +16,6 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item prop="installType" :label="t('install.install_type')">
-          <el-select v-model="form.installType">
-            <el-option
-              v-for="item in installTypes"
-              :key="item.key"
-              :label="t(item.i18nKey)"
-              :value="item.key"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item prop="partitionType" :label="t('install.partition_type')">
           <el-select v-model="form.partitionType">
             <el-option :label="t('install.auto_partition')" value="auto" />
@@ -47,12 +37,11 @@ import { computed, inject, onActivated, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import PartitionGraph from '@/views/components/installer/comp/PartitionGraph.vue'
-import { INSTALL_TYPES, INSTALL_INFO_KEY } from "@/utils/constant.ts"
+import { INSTALL_INFO_KEY } from "@/utils/constant.ts"
 
 const { t } = useI18n()
 
 const disks = ref<string[]>([])
-const installTypes = [...INSTALL_TYPES.entries()].map(v => ({ key: v[0], i18nKey: v[1] }))
 const loading = ref(false)
 
 const form = reactive({

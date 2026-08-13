@@ -687,21 +687,295 @@ class DeviceHandler:
 
 		return luks_handler
 
-	def umount_all_existing(self, device_path: Path) -> None:
-		debug(f'Unmounting all existing partitions: {device_path}')
+	def umount_all_existing(self, device_path: Path | BDevice) -> None:
+		if isinstance(device_path, BDevice):
+			path = device_path.device_info.path
+			partitions = device_path.partition_infos
+		else:
+			path = device_path
+			partitions = None
+			if path in self._devices:
+				partitions = self._devices[path].partition_infos
+			elif str(path) in self._devices:
+				partitions = self._devices[str(path)].partition_infos
 
-		existing_partitions = self._devices[device_path].partition_infos
+		debug(f'Unmounting all existing partitions: {path}')
 
-        # partition.path = "/dev/sda1"
-		for partition in existing_partitions:
+		if partitions is None:
+			debug(f'No partitions found for device {path}, skipping umount')
+			return
+
+		for partition in partitions:
 			debug(f'Unmounting: {partition.path}')
 
-			# un-mount for existing encrypted partitions
 			if partition.fs_type == FilesystemType.Crypto_luks:
 				Luks2(partition.path).lock()
 			else:
 				umount(partition.path, recursive=True)
 
+	def clearpart_device(self, dev_path: Path | str | BDevice) -> None:
+		block_device = None
+
+		if isinstance(dev_path, BDevice):
+			block_device = dev_path
+			dev_path = dev_path.device_info.path
+		elif isinstance(dev_path, str):
+			dev_path = Path(dev_path)
+			if dev_path in self._devices:
+				block_device = self._devices[dev_path]
+		elif isinstance(dev_path, Path):
+			if dev_path in self._devices:
+				block_device = self._devices[dev_path]
+
+		info(f'Clearing device: {dev_path}')
+
+		if block_device is None:
+			debug(f'Device {dev_path} not found in device list, will proceed with path-based cleanup')
+
+		self.umount_all_existing(dev_path)
+
+		self._force_remove_dm_mappings(dev_path)
+
+		if block_device:
+			for partition in block_device.partition_infos:
+				luks = Luks2(partition.path)
+				if luks.isLuks():
+					debug(f'Encrypted partition found: {partition.path}')
+					luks.lock()
+
+		self._clear_lvm_on_device(dev_path)
+
+		self._force_remove_dm_mappings(dev_path)
+
+		if block_device:
+			for partition in block_device.partition_infos:
+				luks = Luks2(partition.path)
+				if luks.isLuks():
+					debug(f'Erasing encrypted partition: {partition.path}')
+					luks.erase()
+
+				self._wipe_lvm_signatures(partition.path)
+				self._wipe(partition.path)
+
+		self._wipe_lvm_signatures(dev_path)
+		self._wipe(dev_path)
+
+		self._force_remove_dm_mappings(dev_path)
+
+		self.udev_sync()
+		time.sleep(1)
+		self.partprobe()
+		self.udev_sync()
+		time.sleep(1)
+
+	def _clear_lvm_on_device(self, dev_path: Path) -> None:
+		info(f'Checking for LVM on device: {dev_path}')
+
+		vg_names = self._find_vg_names_on_device(dev_path)
+
+		for vg_name in vg_names:
+			debug(f'Found VG {vg_name} on device {dev_path}')
+			self._deactivate_vg(vg_name)
+			self._remove_lvm_volume_group(vg_name)
+
+		self._remove_orphan_pvs_on_device(dev_path)
+
+		self._force_remove_dm_mappings(dev_path)
+
+	@staticmethod
+	def _is_pv_on_device(pv_path: Path, dev_path: Path) -> bool:
+		pv_str = str(pv_path)
+		dev_str = str(dev_path)
+
+		if pv_str == dev_str:
+			return True
+
+		if not pv_str.startswith(dev_str):
+			return False
+
+		remainder = pv_str[len(dev_str):]
+		dev_name = dev_str.split('/')[-1]
+
+		if dev_name[-1].isdigit():
+			return remainder.startswith('p') and len(remainder) > 1 and remainder[1:].isdigit()
+
+		return remainder.isdigit()
+
+	def _find_vg_names_on_device(self, dev_path: Path) -> list[str]:
+		vg_names = []
+		try:
+			pv_output = SysCommand(['pvs', '--reportformat', 'json', '-o', 'pv_name,vg_name']).decode()
+			if not pv_output.strip():
+				debug('No PVs found')
+				return vg_names
+			pv_data = json.loads(pv_output)
+			for report in pv_data.get('report', []):
+				for pv in report.get('pv', []):
+					pv_path = Path(pv['pv_name'])
+					if self._is_pv_on_device(pv_path, dev_path):
+						vg_name = pv.get('vg_name')
+						if vg_name and vg_name not in vg_names:
+							vg_names.append(vg_name)
+		except (SysCallError, json.JSONDecodeError) as err:
+			debug(f'Error finding VGs: {err}')
+
+		return vg_names
+
+	def _remove_orphan_pvs_on_device(self, dev_path: Path) -> None:
+		try:
+			pv_output = SysCommand(['pvs', '--reportformat', 'json', '-o', 'pv_name,vg_name']).decode()
+			if not pv_output.strip():
+				return
+			pv_data = json.loads(pv_output)
+			for report in pv_data.get('report', []):
+				for pv in report.get('pv', []):
+					pv_path = Path(pv['pv_name'])
+					if self._is_pv_on_device(pv_path, dev_path):
+						vg_name = pv.get('vg_name')
+						if not vg_name:
+							debug(f'Found orphan PV {pv_path}, removing')
+							self._remove_lvm_physical_volume(pv_path)
+		except (SysCallError, json.JSONDecodeError) as err:
+			debug(f'Error removing orphan PVs: {err}')
+
+	def _deactivate_vg(self, vg_name: str) -> None:
+		debug(f'Deactivating VG {vg_name}')
+		try:
+			SysCommand(['vgchange', '-an', vg_name])
+			debug(f'Successfully deactivated VG {vg_name}')
+		except SysCallError as err:
+			debug(f'Failed to deactivate VG {vg_name}: {err}')
+
+	def _force_remove_dm_mappings(self, dev_path: Path | None = None) -> None:
+		if dev_path:
+			dev_name = dev_path.name
+			debug(f'Force removing DM mappings for device: {dev_path}')
+			device_major_minor = self._get_device_major_minor(dev_path)
+		else:
+			debug('Force removing device mapper mappings')
+			device_major_minor = None
+
+		try:
+			output = SysCommand(['dmsetup', 'ls']).decode()
+			for line in output.splitlines():
+				if line.strip():
+					mapper_name = line.split()[0]
+
+					if dev_path:
+						try:
+							deps_output = SysCommand(['dmsetup', 'deps', mapper_name]).decode()
+							if self._is_dm_mapping_for_device(deps_output, dev_name, device_major_minor):
+								debug(f'Removing DM mapping: {mapper_name}')
+								try:
+									SysCommand(['dmsetup', 'remove', '--force', mapper_name])
+								except SysCallError as err:
+									debug(f'Failed to remove DM mapping {mapper_name}: {err}')
+						except SysCallError as err:
+							debug(f'Failed to get deps for DM mapping {mapper_name}: {err}')
+					else:
+						debug(f'Removing DM mapping: {mapper_name}')
+						try:
+							SysCommand(['dmsetup', 'remove', '--force', mapper_name])
+						except SysCallError as err:
+							debug(f'Failed to remove DM mapping {mapper_name}: {err}')
+			debug('Successfully removed DM mappings')
+		except SysCallError as err:
+			debug(f'Failed to list DM mappings: {err}')
+
+	def _get_device_major_minor(self, dev_path: Path) -> tuple[int, int] | None:
+		try:
+			stat_info = os.stat(dev_path)
+			major = os.major(stat_info.st_rdev)
+			minor = os.minor(stat_info.st_rdev)
+			return (major, minor)
+		except OSError as err:
+			debug(f'Failed to get device major/minor for {dev_path}: {err}')
+			return None
+
+	def _is_dm_mapping_for_device(self, deps_output: str, device_name: str, device_major_minor: tuple[int, int] | None) -> bool:
+		if device_name in deps_output:
+			return True
+
+		if device_major_minor:
+			expected = f'({device_major_minor[0]}, {device_major_minor[1]})'
+			if expected in deps_output:
+				return True
+
+			for part_name in self._get_device_partitions(device_name):
+				part_path = Path(f'/dev/{part_name}')
+				part_major_minor = self._get_device_major_minor(part_path)
+				if part_major_minor:
+					expected = f'({part_major_minor[0]}, {part_major_minor[1]})'
+					if expected in deps_output:
+						return True
+
+		return False
+
+	@staticmethod
+	def _get_device_partitions(device_name: str) -> list[str]:
+		partitions = []
+		sys_block_path = Path(f'/sys/block/{device_name}')
+
+		if not sys_block_path.exists():
+			return partitions
+
+		try:
+			for entry in sys_block_path.iterdir():
+				if entry.name.startswith(device_name):
+					partitions.append(entry.name)
+		except OSError as err:
+			debug(f'Failed to read partitions for {device_name}: {err}')
+
+		return partitions
+
+	def _remove_lvm_volume_group(self, vg_name: str) -> None:
+		debug(f'Removing LVM volume group: {vg_name}')
+
+		try:
+			lv_output = SysCommand(['lvs', '--reportformat', 'json', '-o', 'lv_name,vg_name']).decode()
+			lv_data = json.loads(lv_output)
+			for report in lv_data.get('report', []):
+				for lv in report.get('lv', []):
+					if lv.get('vg_name') == vg_name:
+						lv_name = lv['lv_name']
+						debug(f'Removing LVM volume: {vg_name}/{lv_name}')
+						try:
+							SysCommand(['lvchange', '-an', f'/dev/{vg_name}/{lv_name}'])
+						except SysCallError as err:
+							debug(f'Failed to deactivate LV {vg_name}/{lv_name}: {err}')
+
+						try:
+							worker = SysCommandWorker(['lvremove', '--force', f'/dev/{vg_name}/{lv_name}'])
+							worker.wait()
+						except SysCallError as err:
+							debug(f'Failed to remove LV {vg_name}/{lv_name}: {err}')
+
+			try:
+				worker = SysCommandWorker(['vgremove', '--force', vg_name])
+				worker.wait()
+				debug(f'Successfully removed VG: {vg_name}')
+			except SysCallError as err:
+				debug(f'Failed to remove VG {vg_name}: {err}')
+		except (SysCallError, json.JSONDecodeError) as err:
+			debug(f'Error parsing LV info: {err}')
+
+	def _remove_lvm_physical_volume(self, pv_path: Path) -> None:
+		debug(f'Removing LVM physical volume: {pv_path}')
+		try:
+			worker = SysCommandWorker(['pvremove', '--force', str(pv_path)])
+			worker.wait()
+			debug(f'Successfully removed PV: {pv_path}')
+		except SysCallError as err:
+			debug(f'Failed to remove PV {pv_path}: {err}')
+
+	def _wipe_lvm_signatures(self, dev_path: Path) -> None:
+		debug(f'Wiping LVM signatures on device: {dev_path}')
+		try:
+			SysCommand(['wipefs', '--all', '--force', str(dev_path)])
+			debug(f'Successfully wiped LVM signatures on: {dev_path}')
+		except SysCallError as err:
+			debug(f'Failed to wipe LVM signatures on {dev_path}: {err}')
+			
 	def partition(
 		self,
 		modification: DeviceModification,
@@ -718,6 +992,8 @@ class DeviceHandler:
 				raise DiskError('Too many partitions on disk, MBR disks can only have 3 primary partitions')
 
 			self.wipe_dev(modification.device)
+			# 清理磁盘
+			self.clearpart_device(modification.device)
 			disk = freshDisk(modification.device.disk.device, partition_table.value)
 		else:
 			info(f'Use existing device: {modification.device_path}')

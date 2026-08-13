@@ -37,7 +37,6 @@ export interface InstallInfo {
 }
 
 export const INSTALL_TYPES: Readonly<Map<string, string>> = new Map([
-  ['min', 'install.minInstall'],
   ['dev', 'install.devStation']
 ]);
 
