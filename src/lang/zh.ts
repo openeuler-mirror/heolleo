@@ -29,7 +29,6 @@ export default {
     installType: '安装方式',
     complete: '完成',
     start_install: '开始安装',
-    minInstall: '最小安装',
     devStation: 'DevStation',
     area: '区域',
     areaPlaceholder: '请选择区域',

@@ -10,10 +10,6 @@
           <span class="disk-info-label">{{ t('install.target_disk') }}</span>
           <span class="disk-info-value">{{ installInfo.disk }}</span>
         </div>
-        <div>
-          <span class="disk-info-label">{{ t('install.install_type') }}</span>
-          <span class="disk-info-value">{{ t(INSTALL_TYPES.get(installInfo.installType) || '') }}</span>
-        </div>
       </div>
       <div class="disk-info-sub">{{ t('install.partitionResult') }}</div>
       <div class="disk-info-res">
@@ -28,7 +24,7 @@ import { ref, inject, reactive, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import DiskPartitionSummary from './DiskPartitionSummary.vue'
-import { INSTALL_INFO_KEY, INSTALL_TYPES, InstallInfo } from "@/utils/constant.ts"
+import { INSTALL_INFO_KEY, InstallInfo } from "@/utils/constant.ts"
 import { ConfigGenerator } from '@/services/ConfigGenerator.ts'
 
 const { t } = useI18n()
