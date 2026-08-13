@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import stat
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -764,7 +765,7 @@ class DeviceHandler:
 
 		self.udev_sync()
 		time.sleep(1)
-		self.partprobe()
+		self.partprobe(dev_path)
 		self.udev_sync()
 		time.sleep(1)
 
@@ -991,9 +992,15 @@ class DeviceHandler:
 			if partition_table.is_mbr() and len(modification.partitions) > 3:
 				raise DiskError('Too many partitions on disk, MBR disks can only have 3 primary partitions')
 
-			self.wipe_dev(modification.device)
-			# 清理磁盘
+			# 先清理 LVM/DM/加密等占用，再擦除分区元数据
 			self.clearpart_device(modification.device)
+			self.wipe_dev(modification.device)
+
+			dev_path = modification.device.device_info.path
+			self.udev_sync()
+			self.partprobe(dev_path)
+			self.udev_sync()
+
 			disk = freshDisk(modification.device.disk.device, partition_table.value)
 		else:
 			info(f'Use existing device: {modification.device_path}')
@@ -1011,6 +1018,45 @@ class DeviceHandler:
 			self._setup_partition(part_mod, modification.device, disk, requires_delete=requires_delete)
 
 		disk.commit()
+
+		# 确保内核识别新的分区表
+		dev_path = modification.device.device_info.path
+		self.udev_sync()
+		self.partprobe(dev_path)
+		self.udev_sync()
+		time.sleep(2)
+
+		# 清除新分区的旧签名，防止 mkfs 读取到残留元数据
+		for part_mod in filtered_part:
+			if part_mod.dev_path:
+				try:
+					SysCommand(['wipefs', '-af', str(part_mod.dev_path)])
+				except SysCallError as err:
+					debug(f'Failed to wipe signatures on {part_mod.dev_path}: {err}')
+
+		self.udev_sync()
+		self.partprobe(dev_path)
+		self.udev_sync()
+
+		# 重新读取分区表，确保内核缓存被刷新
+		try:
+			SysCommand(['blockdev', '--rereadpt', str(dev_path)])
+		except SysCallError as err:
+			debug(f'Failed to reread partition table: {err}')
+
+		self.udev_sync()
+
+		# 确保分区设备节点存在
+		for part_mod in filtered_part:
+			if part_mod.dev_path:
+				part_dev = Path(part_mod.dev_path)
+				if not part_dev.exists():
+					try:
+						SysCommand(['udevadm', 'trigger', '--action=add', '--subsystem-match=block'])
+						self.udev_sync()
+						time.sleep(2)
+					except SysCallError as err:
+						debug(f'Failed to trigger udev: {err}')
 
 	@staticmethod
 	def swapon(path: Path) -> None:
@@ -1084,18 +1130,18 @@ class DeviceHandler:
 
 	def partprobe(self, path: Path | None = None) -> None:
 		if path is not None:
-			command = f'partprobe {path}'
+			cmd = ['partprobe', str(path)]
 		else:
-			command = 'partprobe'
+			cmd = ['partprobe']
 
 		try:
-			debug(f'Calling partprobe: {command}')
-			SysCommand(command)
+			debug(f'Calling partprobe: {" ".join(cmd)}')
+			SysCommand(cmd)
 		except SysCallError as err:
 			if 'have been written, but we have been unable to inform the kernel of the change' in str(err):
 				log(f'Partprobe was not able to inform the kernel of the new disk state (ignoring error): {err}', fg='gray', level=logging.INFO)
 			else:
-				error(f'"{command}" failed to run (continuing anyway): {err}')
+				error(f'{" ".join(cmd)} failed to run (continuing anyway): {err}')
 
 	def _wipe(self, dev_path: Path) -> None:
 		"""
@@ -1103,8 +1149,20 @@ class DeviceHandler:
 		@param dev_path:    Device path of the partition to be wiped.
 		@type dev_path:     str
 		"""
-		with open(dev_path, 'wb') as p:
-			p.write(bytearray(1024))
+		# 检查路径是否为块设备，避免在设备节点不存在时创建普通文件
+		try:
+			if not os.path.exists(dev_path) or not stat.S_ISBLK(os.stat(dev_path).st_mode):
+				debug(f'Skipping wipe of {dev_path}: not a block device')
+				return
+		except OSError as err:
+			debug(f'Skipping wipe of {dev_path}: {err}')
+			return
+
+		try:
+			with open(dev_path, 'wb') as p:
+				p.write(bytearray(1024))
+		except OSError as err:
+			debug(f'Failed to wipe {dev_path}: {err}')
 
 	def wipe_dev(self, block_device: BDevice) -> None:
 		"""
@@ -1112,7 +1170,8 @@ class DeviceHandler:
 		This is not intended to be secure, but rather to ensure that
 		auto-discovery tools don't recognize anything here.
 		"""
-		info(f'Wiping partitions and metadata: {block_device.device_info.path}')
+		dev_path = block_device.device_info.path
+		info(f'Wiping partitions and metadata: {dev_path}')
 		info(f' block_device.partition_infos {block_device.partition_infos}')
 
 		for partition in block_device.partition_infos:
@@ -1121,9 +1180,31 @@ class DeviceHandler:
 			if luks.isLuks():
 				luks.erase()
 
+			# 清除可能残留的普通文件（之前 _wipe 可能误创建）
+			part_path = Path(partition.path)
+			if part_path.exists() and not stat.S_ISBLK(os.stat(part_path).st_mode):
+				debug(f'Removing non-block-device file at {part_path}')
+				os.remove(part_path)
+
 			self._wipe(partition.path)
 
-		self._wipe(block_device.device_info.path)
+		# 使用 wipefs 彻底清除磁盘所有签名
+		try:
+			SysCommand(['wipefs', '-af', str(dev_path)])
+		except SysCallError as err:
+			debug(f'Failed to wipefs {dev_path}: {err}')
+
+		# 清除头部和尾部签名（GPT 头在磁盘开头和末尾）
+		self._wipe(dev_path)
+		try:
+			with open(dev_path, 'r+b') as f:
+				f.seek(0, 2)
+				size = f.tell()
+				if size > 1024:
+					f.seek(-1024, 2)
+					f.write(bytearray(1024))
+		except OSError as err:
+			debug(f'Failed to wipe tail of {dev_path}: {err}')
 
 	@staticmethod
 	def udev_sync() -> None:

@@ -8,6 +8,8 @@ interface IpcRenderer {
 export interface ElectronAPI {
   closeApp: () => void
   saveConfigFile: (filepath: string, content: string) => Promise<void>
+  getDiskSectorSize: (params: { diskDevice: string }) => Promise<{ success: boolean; sector_size?: { value: number; unit: string }; error?: string }>
+  getBootMode: () => Promise<{ mode: 'uefi' | 'bios' }>
 }
 
 interface Window {

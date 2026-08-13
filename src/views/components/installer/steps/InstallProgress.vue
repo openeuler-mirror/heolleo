@@ -44,7 +44,7 @@ import { IconFileText } from '@computing/opendesign-icons'
 
 const emit = defineEmits(['finish', 'failed'])
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
 const progress = ref(0)
 const installInfo = inject<InstallInfo>(INSTALL_INFO_KEY, reactive({} as InstallInfo))

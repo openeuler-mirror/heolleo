@@ -24,7 +24,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, inject, reactive, onMounted, watch } from 'vue'
+import { ref, inject, reactive, onActivated, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant.ts'
@@ -49,14 +49,17 @@ async function loadConfig() {
   }
 }
 
-onMounted(() => {
+// 每次激活页面时重新生成配置（KeepAlive 下 onMounted 只执行一次）
+onActivated(() => {
   loadConfig()
 })
 
-// 监听安装信息变化，重新加载配置
-watch(() => [installInfo.disk, installInfo.partitionType, installInfo.useLvm], () => {
-  loadConfig()
-})
+// 监听安装信息变化（含分区数据），重新加载配置
+watch(
+  () => [installInfo.disk, installInfo.partitionType, installInfo.useLvm, installInfo.partInfoManual],
+  () => { loadConfig() },
+  { deep: true }
+)
 
 
 

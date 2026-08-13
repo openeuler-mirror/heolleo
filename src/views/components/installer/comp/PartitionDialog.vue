@@ -16,7 +16,7 @@
             >
               <template #append>MiB</template>
             </el-input>
-            <div class="format-warning" v-if="!isEdit || pForm.format">{{ $t('install.size_range_tip') }} 1~{{ pForm.maxSize}}</div>
+            <div class="format-warning" v-if="!isEdit || pForm.format">{{ $t('install.size_range_tip', { max: pForm.maxSize }) }}</div>
           </el-form-item>
           <el-form-item :label="$t('common.content')" prop="format" v-if="isEdit">
             <el-radio-group v-model="pForm.format">
@@ -74,8 +74,9 @@ import { computed, reactive, ref, defineEmits, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PartInfo } from '@/utils/constant.ts'
 import { formatSize } from '@/utils/utils.ts'
+import { DISK_LAYOUT } from '@/utils/constant.ts'
 
-const FS_TYPES = ['ext3', 'ext4', 'fat16', 'fat32']
+const FS_TYPES = ['ext3', 'ext4', 'fat16', 'fat32', 'btrfs', 'xfs']
 const MOUNT_POINTS = [
   '/',
   '/boot',
@@ -86,6 +87,8 @@ const MOUNT_POINTS = [
   '/usr',
   '/var'
 ]
+
+const MIB = DISK_LAYOUT.MIB
 
 const {t} = useI18n();
 
@@ -110,13 +113,16 @@ const pForm = reactive({
   mount: '',
   format: false,
   fsLabel: '',
-  label: []
+  label: [] as string[]
 });
 const rules = computed(() => ({
   size: [
+    { required: true, message: t('install.size_required_tip'), trigger: 'blur' },
     {
-      validator: (rule, value, callback) => {
-        if (value > pForm.maxSize) {
+      validator: (rule: any, value: number, callback: any) => {
+        if (!value || value < 1) {
+          callback(new Error(t('install.size_min_tip')));
+        } else if (value > pForm.maxSize) {
           callback(new Error(t('install.size_too_large_tip')));
         } else {
           callback();
@@ -141,43 +147,42 @@ async function onConfirm() {
     return;
   }
   loading.value = true;
-  
+
   // 传递格式化选项
   const shouldFormat = isEdit.value && pForm.format;
-  
-  let updatedPartition;
+  const originalStart = Number(rowInfo.value.start) || DISK_LAYOUT.GPT_START_OFFSET;
+
+  // pForm.label 是复选框组，实际是分区标志（flags），如 boot/bios-grub
+  const flagsFromForm: string[] = [...pForm.label];
+
+  let updatedPartition: PartInfo;
   if (isEdit.value && !shouldFormat) {
-    // 选择"保留"时，使用分区的原始值
+    // 保留模式：size/start/fs_type 保持不变，仅可改挂载点
     updatedPartition = {
       ...rowInfo.value,
-      // 保持原始的分区属性
       size: rowInfo.value.size,
       fs_type: rowInfo.value.fs_type,
-      loadPoint: pForm.mount, // 只有挂载点可以修改
-      label: rowInfo.value.label,
-      start: rowInfo.value?.start | 1024 * 1024 // 保留原始 start 值
+      loadPoint: pForm.mount,
+      flags: rowInfo.value.flags,
+      start: originalStart,
     };
   } else {
-    // 选择"格式化"或新建分区时，使用表单中的值
+    // 格式化模式或新建模式：使用表单中的值
+    // pForm.size 单位为 MiB，转换为字节字符串（1MiB 对齐）
+    const sizeInBytes = Math.floor(pForm.size) * MIB;
     updatedPartition = {
       ...rowInfo.value,
       uuid: `new-${Date.now()}`,
-      tag:  t('install.new_partition'),
-      size: (Math.floor(pForm.size) * 1048576).toString(),      
+      tag: t('install.new_partition'),
+      size: sizeInBytes.toString(),
       fs_type: pForm.fsType,
       type: 'primary',
       loadPoint: pForm.mount,
-      label: pForm.label.length > 0 ? pForm.label[0] : '', // 使用复选框组的值
-      start: rowInfo.value.start // 使用原始 start 值
+      flags: flagsFromForm,
+      start: originalStart,
     };
-    if (!isEdit.value) {
-      updatedPartition.uuid = `new-${Date.now()}`;
-      updatedPartition.tag = t('install.new_partition');
-      // 对于新创建的分区，设置原始 start 值
-      updatedPartition.start = rowInfo.value.start;
-    }
   }
-  emit('confirm', updatedPartition, isEdit.value, rowInfo.value.uuid, shouldFormat);
+  emit('confirm', updatedPartition, isEdit.value, rowInfo.value.uuid || '', shouldFormat);
   loading.value = false;
   ruleFormRef.value?.resetFields();
   showDialog.value = false;
@@ -196,15 +201,14 @@ watch(() => pForm.format, (newValue, oldValue) => {
   if (isEdit.value) {
     // 当从"格式化"切换到"保留"时，恢复原始分区数据
     if (oldValue === true && newValue === false && originalPartitionData.value) {
-      pForm.size = Math.floor((Number(originalPartitionData.value.size)) / (1024 * 1024));
+      pForm.size = Math.floor(Number(originalPartitionData.value.size) / MIB);
       pForm.fsType = originalPartitionData.value.fsType;
       pForm.fsLabel = originalPartitionData.value.fsLabel;
+      // originalPartitionData.label 实际存储的是 flags
       pForm.label = [...originalPartitionData.value.label];
     }
-    
+
     // 更新表单字段的禁用状态
-    // 注意：这里的禁用状态已经在模板中通过 :disabled="isEdit && !pForm.format" 控制
-    // 我们只需要确保在状态变化时重新验证表单
     if (ruleFormRef.value) {
       ruleFormRef.value.clearValidate();
     }
@@ -220,35 +224,47 @@ const titleInfo = computed(() => {
   return `${tag} (${formatSize(Number(size), true)})`
 })
 
+/**
+ * 打开对话框
+ * @param row 目标分区（空闲区域或已有分区）
+ * @param edit 是否为编辑模式
+ * @param availableSize 可用最大尺寸（字节）：
+ *   - 创建模式：空闲区域大小
+ *   - 编辑模式：分区当前大小 + 后方相邻空闲区域（仅允许向相邻空闲扩大）
+ */
 const openDialog = (row: PartInfo, edit = false, availableSize: number) => {
   rowInfo.value = row;
   isEdit.value = edit;
-  console.log(`${row.size}`);
-  const maxSize = Math.floor((Number(row.size)) / (1024 * 1024)); 
-  console.log(`${maxSize}`);
-  pForm.maxSize = maxSize; //
+
+  const maxSizeMiB = Math.floor(availableSize / MIB);
+  pForm.maxSize = maxSizeMiB;
+
   if (edit) {
-    pForm.size = maxSize;
-    pForm.fsType = row.fs_type || 'ext4'
-    pForm.mount = row.loadPoint
-    pForm.format = false
-    pForm.fsLabel = row.label || ''
-    pForm.label = row.label ? [row.label] : []
-    
-    // 保存原始分区数据
+    // 编辑模式：size 初始化为当前分区大小
+    const currentSizeMiB = Math.floor(Number(row.size) / MIB);
+    pForm.size = currentSizeMiB;
+    pForm.fsType = row.fs_type || 'ext4';
+    pForm.mount = row.loadPoint;
+    pForm.format = false;
+    pForm.fsLabel = row.label || '';
+    // pForm.label 是复选框组，对应分区标志（flags）
+    pForm.label = [...(row.flags || [])];
+
+    // 保存原始分区数据（用于格式化↔保留切换时恢复）
     originalPartitionData.value = {
       size: row.size,
       fsType: row.fs_type || 'ext4',
       fsLabel: row.label || '',
-      label: row.label ? [row.label] : []
+      label: [...(row.flags || [])]
     };
   } else {
-    pForm.size = maxSize;
-    pForm.fsType = 'ext4'
-    pForm.mount = ''
-    pForm.format = false
-    pForm.fsLabel = ''
-    pForm.label = []
+    // 创建模式：size 默认为最大可用大小
+    pForm.size = maxSizeMiB;
+    pForm.fsType = 'ext4';
+    pForm.mount = '';
+    pForm.format = false;
+    pForm.fsLabel = '';
+    pForm.label = [];
     originalPartitionData.value = null;
   }
   showDialog.value = true;

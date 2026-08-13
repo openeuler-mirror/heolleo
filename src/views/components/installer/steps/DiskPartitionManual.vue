@@ -14,7 +14,7 @@
       </el-button>
     </div>
     <div class="disk-info-item">
-      <PartitionGraph :data-list="installInfo?.partInfo || []" :height-px="20" />
+      <PartitionGraph :data-list="installInfo?.partInfoManual || []" :height-px="20" />
     </div>
     <div class="table-container">
       <div class="disk-part-table">
@@ -43,9 +43,9 @@
         }">{{ t('install.new_partition_table') }}</el-button>
       </div>
       <div class="bottom-actions-right">
-        <el-button size="small" :disabled="!isFreeSpaceSelected" @click="partitionDialogRef?.openDialog(selectedPartition, false, selectedPartition.size)">{{ t('common.create') }}</el-button>
-        <el-button size="small" :disabled="!isPartitionSelected" @click="partitionDialogRef?.openDialog(selectedPartition, true, (Number(selectedPartition.size) + totalFreeSpace))">{{ t('common.edit') }}</el-button>
-        <el-button size="small" :disabled="!isPartitionSelected" @click="deleteRow(selectedPartition)">{{ t('common.delete') }}</el-button>
+        <el-button size="small" :disabled="!isFreeSpaceSelected" @click="onCreatePartition">{{ t('common.create') }}</el-button>
+        <el-button size="small" :disabled="!isPartitionSelected" @click="onEditPartition">{{ t('common.edit') }}</el-button>
+        <el-button size="small" :disabled="!isPartitionSelected" @click="onDeletePartition">{{ t('common.delete') }}</el-button>
       </div>
     </div>
   </div>
@@ -54,7 +54,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onActivated, onMounted, ref, type Reactive } from 'vue'
+import { computed, inject, onActivated, ref, type Reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import PartitionGraph from '@/views/components/installer/comp/PartitionGraph.vue'
@@ -64,296 +64,222 @@ import {
   DISK_OTHERS_COLOR,
   DISK_PART_PALETTE,
   INSTALL_INFO_KEY,
-  type InstallInfo
+  type InstallInfo,
+  type PartInfo
 } from '@/utils/constant.ts'
 import { formatSize } from '@/utils/utils.ts'
+import {
+  isFreeSpace,
+  isEffectivePartition,
+  getAdjacentFreeSpace,
+  createPartition,
+  editPartitionKeep,
+  editPartitionFormat,
+  deletePartition,
+  createNewPartitionTable,
+  initEmptyDisk,
+  normalizePartInfo,
+  validateLayout,
+} from '@/utils/partitionUtils.ts'
 
 const { t } = useI18n()
 
-const emit = defineEmits(['prev', 'next', 'finish', 'failed'])
+/**
+ * 手动分区逻辑（参考 anaconda / archinstall 标准）
+ *
+ * 核心约定见 src/utils/partitionUtils.ts
+ * 本组件负责 UI 交互，分区布局逻辑全部委托给 partitionUtils.ts
+ */
+
 const partitionDialogRef = ref()
 const createPartitionTableDialogRef = ref()
 const selectedDisk = ref('')
-const selectedPartition = ref<any>(null)
+const selectedPartition = ref<PartInfo | null>(null)
 
 const installInfo = inject(INSTALL_INFO_KEY) as Reactive<InstallInfo>
+
+// ============================================================
+// 校验
+// ============================================================
+
 async function checkValid() {
-  // 检查是否至少有一个分区挂载点为 /
-  const hasRootPartition = installInfo.partInfo.some(p => p.loadPoint === '/');
-  if (!hasRootPartition) {
-    // 检查是否没有分区（空数组）或只有空闲空间
-    const hasNoPartitions = installInfo.partInfo.length === 0;
-    const hasOnlyFreeSpace = installInfo.partInfo.length === 1 &&
-                            installInfo.partInfo[0].tag === t('install.free_space');
-    
-    if (hasNoPartitions || hasOnlyFreeSpace) {
-      // @ts-ignore
-      ElMessage({
-        type: 'warning',
-        message: t('install.warning_create_partition_table'),
-      })
-      return false
-    } else {
-      // @ts-ignore
-      ElMessage({
-        type: 'error',
-        message: t('install.error_no_root'),
-      })
-      return false
-    }
+  const result = validateLayout(installInfo.partInfoManual)
+  if (!result.valid) {
+    // @ts-ignore ElMessage 全局注入
+    ElMessage({
+      type: result.errorType === 'no_partitions' ? 'warning' : 'error',
+      message: result.errorType === 'no_root'
+        ? t('install.error_no_root')
+        : t('install.warning_create_partition_table'),
+    })
+    return false
   }
   return true
 }
 
-const handleCurrentChange = (val) => {
+// ============================================================
+// 表格选择状态
+// ============================================================
+
+const handleCurrentChange = (val: PartInfo | null) => {
   selectedPartition.value = val
 }
 
-// 是否选择非空的空闲分区 ？ true || false
+/** 当前选中的是否为空闲区域 */
 const isFreeSpaceSelected = computed(() => {
-  return selectedPartition.value && selectedPartition.value.tag === t('install.free_space')
+  return !!selectedPartition.value && isFreeSpace(selectedPartition.value)
 })
 
-// 是否选择非空的非空闲分区 ？ true || false
+/** 当前选中的是否为实际分区（非空闲、非删除指令） */
 const isPartitionSelected = computed(() => {
-  return selectedPartition.value && selectedPartition.value.tag !== t('install.free_space')
+  return !!selectedPartition.value && isEffectivePartition(selectedPartition.value)
 })
 
-const totalFreeSpace = computed(() => {
-  return installInfo.partInfo
-    .filter(p => p.tag === t('install.free_space'))
-    .reduce((total, p) => total + Number(p.size), 0);
-});
+// ============================================================
+// 分区操作入口
+// ============================================================
 
-const deleteRow = (row: any) => {
-  if (!row) return;
+/** 点击"创建"按钮：打开对话框，传入选中的空闲区域 */
+const onCreatePartition = () => {
+  if (!selectedPartition.value) return
+  // 从 partInfoManual 重新查找最新空闲区域数据，
+  // 避免 selectedPartition 指向 tData computed 生成的过期对象
+  const latestFree = installInfo.partInfoManual.find(p => p.uuid === selectedPartition.value!.uuid)
+  if (!latestFree) return
+  const free = latestFree
+  // 创建模式 maxSize = 空闲区域大小
+  partitionDialogRef.value?.openDialog(free, false, Number(free.size))
+}
 
-  const index = installInfo.partInfo.findIndex(p => p.uuid === row.uuid);
-  if (index === -1) return;
+/** 点击"编辑"按钮：打开对话框，传入选中的分区 */
+const onEditPartition = () => {
+  if (!selectedPartition.value) return
+  // 从 partInfoManual 重新查找最新分区数据，
+  // 避免 selectedPartition 指向 tData computed 生成的过期对象
+  const latestPart = installInfo.partInfoManual.find(p => p.uuid === selectedPartition.value!.uuid)
+  if (!latestPart) return
+  const part = latestPart
+  // 编辑模式 maxSize 计算：
+  // - 格式化模式（existing/format）：后端会先 delete 释放原分区空间，扩大上限 = 原始磁盘大小 + 后方相邻空闲
+  // - 保留模式/新建：扩大上限 = 当前分区大小 + 后方相邻空闲
+  const partIndex = installInfo.partInfoManual.findIndex(p => p.uuid === part.uuid)
+  const adjacentFree = partIndex >= 0 ? getAdjacentFreeSpace(installInfo.partInfoManual, partIndex) : 0
+  const isFormatMode = part.status === 'existing' || part.status === 'format'
+  const baseSize = isFormatMode
+    ? Math.max(Number(part.originalSize || 0), Number(part.size))
+    : Number(part.size)
+  const maxSize = baseSize + adjacentFree
+  partitionDialogRef.value?.openDialog(part, true, maxSize)
+}
 
-  // 将分区变为空闲空间，并设置状态为 delete; ...row 表示保留对象的原始属性值
-  const freedPartition = {
-    ...row,
-    tag: t('install.free_space'),
-    type: '',
-    loadPoint: '',
-    fs_type: null,
-    mountpoint: null,
-    status: 'delete', // 设置状态为 delete，供 ConfigGenerator.ts 排序使用
-    start: row.start // 保留原始 start 值
-  };
+/** 点击"删除"按钮 */
+const onDeletePartition = () => {
+  if (!selectedPartition.value) return
+  deleteRow(selectedPartition.value)
+}
 
-  // 查找是否已存在空闲空间
-  const existingFreeSpaceIndex = installInfo.partInfo.findIndex(p => p.tag === t('install.free_space') && p.uuid !== row.uuid);
+// ============================================================
+// 删除分区
+// ============================================================
 
-  if (existingFreeSpaceIndex !== -1) {
-    // 如果存在空闲空间，则合并
-    const existingFreeSpace = installInfo.partInfo[existingFreeSpaceIndex];
-    const newSize = Number(existingFreeSpace.size) + Number(freedPartition.size);
-    installInfo.partInfo[existingFreeSpaceIndex].size = newSize.toString();
-    installInfo.partInfo.splice(index, 1); //splice()：数组方法，用于添加/删除数组元素; index：要删除元素的起始位置; 1：要删除的元素数量（这里只删除1个）
-    
-    // 在合并后，需要确保删除的分区状态被保留
-    // 这里我们添加一个标记分区，表示有分区被删除
-    installInfo.partInfo.push({
-      ...freedPartition,
-      size: '0', // 大小为0，表示这是一个标记分区
-      tag: 'deleted_marker',
-      uuid: `deleted-${Date.now()}`
-    });
-  } else {
-    // 如果不存在空闲空间，则直接替换
-    installInfo.partInfo.splice(index, 1, freedPartition);
-  }
+const deleteRow = (row: PartInfo) => {
+  if (!row.uuid) return
+  installInfo.partInfoManual = deletePartition(
+    installInfo.partInfoManual,
+    row.uuid,
+    t('install.free_space'),
+    installInfo.disk
+  )
+  selectedPartition.value = null
+}
 
-  // 清除选中状态
-  selectedPartition.value = null;
-};
+// ============================================================
+// 撤销所有修改
+// ============================================================
 
 const undoAllChanges = () => {
-  installInfo.partInfo = JSON.parse(JSON.stringify(installInfo.partInfoBefore))
-}
-
-const handlePartitionConfirm = (partition: any, isEdit: boolean, originalUuid: string, shouldFormat: boolean = false) => {
-
-  console.log(installInfo.partInfo);
-  
-  const index = installInfo.partInfo.findIndex(p => p.uuid === originalUuid);
-  if (index === -1) {
-    console.log('未找到原始分区')
-    return;
-  }
-
-  if (isEdit) {
-    const originalPartition = installInfo.partInfo[index];
-    
-    // 将格式化信息保存到分区对象中，供ConfigGenerator.ts使用
-    partition.shouldFormat = shouldFormat;
-    
-    if (shouldFormat) {
-      // 格式化模式：相当于删除原分区并创建新分区
-      partition.status = 'create';
-      originalPartition.status = 'delete';
-      const sizeDifference = Number(partition.size) - Number(originalPartition.size);
-      
-      // 处理大小变化
-      if (sizeDifference > 0) {
-        // 分区大小增加，从空闲空间中减去
-        let remainingDifference = sizeDifference;
-        const freeSpaces = installInfo.partInfo.filter(p => p.tag === t('install.free_space')).sort((a, b) => Number(b.size) - Number(a.size));
-
-        for (const freeSpace of freeSpaces) {
-          const freeSpaceIndex = installInfo.partInfo.findIndex(p => p.uuid === freeSpace.uuid);
-          const freeSpaceSize = Number(freeSpace.size);
-
-          if (remainingDifference >= freeSpaceSize) {
-            remainingDifference -= freeSpaceSize;
-            installInfo.partInfo.splice(freeSpaceIndex, 1);
-          } else {
-            installInfo.partInfo[freeSpaceIndex].size = (freeSpaceSize - remainingDifference).toString();
-            installInfo.partInfo[freeSpaceIndex].start = installInfo.partInfo[freeSpaceIndex].start + remainingDifference;
-            remainingDifference = 0;
-            break;
-          }
-        }
-      } else if (sizeDifference < 0) {
-        // 分区大小减小，增加到空闲空间
-        const freedSize = -sizeDifference;
-        const existingFreeSpaceIndex = installInfo.partInfo.findIndex(p => p.tag === t('install.free_space'));
-
-        if (existingFreeSpaceIndex !== -1) {
-          const existingFreeSpace = installInfo.partInfo[existingFreeSpaceIndex];
-          installInfo.partInfo[existingFreeSpaceIndex].size = (Number(existingFreeSpace.size) + freedSize).toString();
-        } else {
-          installInfo.partInfo.push({
-            ...originalPartition,
-            size: freedSize.toString(),
-            tag: t('install.free_space'),
-            type: '',
-            loadPoint: '',
-            uuid: `free-${Date.now()}`,
-            start:Number(originalPartition.start) + Number(partition.size) 
-          });
-        }
-      }
-      
-      // 替换为新分区（相当于删除+创建）
-      installInfo.partInfo.splice(index, 1, partition);
-      originalPartition.isDelete = 'delete';
-      originalPartition.start = originalPartition.start;
-      installInfo.partInfo.push(originalPartition);//保留已删除分区信息供生成配置文件使用
-    } else {
-      // 保留模式：只更新分区属性，不改变大小
-      partition.status = 'existing';
-      const sizeDifference = Number(partition.size) - Number(originalPartition.size);
-
-      if (sizeDifference > 0) {
-        // 分区大小增加，从空闲空间中减去
-        let remainingDifference = sizeDifference;
-        const freeSpaces = installInfo.partInfo.filter(p => p.tag === t('install.free_space')).sort((a, b) => Number(b.size) - Number(a.size));
-
-        for (const freeSpace of freeSpaces) {
-          const freeSpaceIndex = installInfo.partInfo.findIndex(p => p.uuid === freeSpace.uuid);
-          const freeSpaceSize = Number(freeSpace.size);
-
-          if (remainingDifference >= freeSpaceSize) {
-            remainingDifference -= freeSpaceSize;
-            installInfo.partInfo.splice(freeSpaceIndex, 1);
-          } else {
-            installInfo.partInfo[freeSpaceIndex].size = (freeSpaceSize - remainingDifference).toString();
-            remainingDifference = 0;
-            break;
-          }
-        }
-      } else if (sizeDifference < 0) {
-        // 分区大小减小，增加到空闲空间
-        // 需要考虑减少的分区大小释放的1MiB起始偏移
-        const freedSize = -sizeDifference;
-        const existingFreeSpaceIndex = installInfo.partInfo.findIndex(p => p.tag === t('install.free_space'));
-
-        if (existingFreeSpaceIndex !== -1) {
-          const existingFreeSpace = installInfo.partInfo[existingFreeSpaceIndex];
-          installInfo.partInfo[existingFreeSpaceIndex].size = (Number(existingFreeSpace.size) + freedSize).toString();
-        } else {
-          installInfo.partInfo.push({
-            ...originalPartition,
-            size: freedSize.toString(),
-            tag: t('install.free_space'),
-            type: '',
-            loadPoint: '',
-            uuid: `free-${Date.now()}`,
-            start: originalPartition.start + partition.size
-          });
-        }
-      }
-
-      installInfo.partInfo.splice(index, 1, partition);
-    }
+  if (installInfo.partInfoBefore?.length) {
+    installInfo.partInfoManual = JSON.parse(JSON.stringify(installInfo.partInfoBefore))
   } else {
-    // 创建模式
-    partition.status = 'create';
-    const originalPartition = installInfo.partInfo[index];
-    const originalSize = Number(originalPartition.size);
-    const newSize = Number(partition.size);
-    
-    const remainingSize = originalSize - newSize;
+    installInfo.partInfoManual = initEmptyDisk(
+      Number(installInfo.diskSize) || 0,
+      installInfo.disk,
+      t('install.free_space')
+    )
+  }
+  selectedPartition.value = null
+}
 
-    if (remainingSize > 0) {
-      // 如果有剩余空间，则替换为两个分区
-      const newFreePartition = {
-        ...originalPartition,
-        size: remainingSize.toString(),
-        tag: t('install.free_space'),
-        type: '',
-        loadPoint: '',
-        start: originalPartition?.start | 1024 * 1024 + newSize 
-      };
-      installInfo.partInfo.splice(index, 1, partition, newFreePartition);
+// ============================================================
+// 创建 / 编辑 分区确认（由 PartitionDialog 触发）
+// ============================================================
+
+/**
+ * 处理 PartitionDialog 返回的分区确认。
+ *
+ * @param partition  对话框返回的新分区数据（size 为字节字符串）
+ * @param isEdit     是否为编辑模式
+ * @param originalUuid 原始分区 uuid
+ * @param shouldFormat 编辑模式下是否格式化
+ */
+const handlePartitionConfirm = (
+  partition: PartInfo,
+  isEdit: boolean,
+  originalUuid: string,
+  shouldFormat: boolean = false
+) => {
+  if (!isEdit) {
+    // 创建模式：从空闲区域中切分出新分区
+    installInfo.partInfoManual = createPartition(
+      installInfo.partInfoManual,
+      originalUuid,
+      partition
+    )
+  } else {
+    // 编辑模式
+    if (shouldFormat) {
+      // 格式化模式：保留位置，重建文件系统（可调整大小）
+      installInfo.partInfoManual = editPartitionFormat(
+        installInfo.partInfoManual,
+        originalUuid,
+        partition,
+        t('install.free_space')
+      )
     } else {
-      // 如果没有剩余空间，则只替换为新分区
-      partition.status = 'create';
-      installInfo.partInfo.splice(index, 1, partition);
+      // 保留模式：只更新挂载点等属性
+      installInfo.partInfoManual = editPartitionKeep(
+        installInfo.partInfoManual,
+        originalUuid,
+        partition
+      )
     }
   }
-};
-
-const handleCreatePartitionTable = (partitionType: string) => {
-  // Mock logic to clear partitions
-  const totalSize = installInfo.partInfo.reduce((sum, p) => sum + Number(p.size), 0)
-  
-  // 计算非空闲空间的分区数量，每个分区需要1MiB的起始偏移
-  const partitionCount = installInfo.partInfo.filter(p => p.tag !== t('install.free_space')).length
-  
-  // 减去每个分区需要的1MiB起始偏移
-  const availableSize = totalSize - (partitionCount * 1024 * 1024)
-
-  installInfo.partInfo = [{
-    name: t('install.free_space'),
-    dev_path: installInfo.partInfo[0]?.dev_path || '',
-    size: availableSize.toString(),
-    fs_type: null,
-    mountpoint: null,
-    uuid: `free-${Date.now()}`,
-    flags: [],
-    start: 0, // 设置起始位置为0
-    type: '',
-    status: '',
-    tag: t('install.free_space'),
-    loadPoint: ''
-  }]
+  selectedPartition.value = null
 }
+
+// ============================================================
+// 创建分区表
+// ============================================================
+
+const handleCreatePartitionTable = (_partitionType: string) => {
+  installInfo.partInfoManual = createNewPartitionTable(
+    Number(installInfo.diskSize) || 0,
+    installInfo.disk,
+    t('install.free_space')
+  )
+  selectedPartition.value = null
+}
+
+// ============================================================
+// 表格展示数据：按物理位置(start)排序
+// ============================================================
 
 const tData = computed(() => {
-  const sorted = (installInfo.partInfo || []).slice().sort((v1, v2) => {
-    const size1 = Number(v1.size)
-    const size2 = Number(v2.size)
-    if (size1 === size2) {
-      return v1.tag > v2.tag ? 1 : -1
-    }
-    return size2 - size1
+  const sorted = (installInfo.partInfoManual || []).slice().sort((v1, v2) => {
+    return Number(v1.start) - Number(v2.start)
   })
   return sorted.map(v => {
-    const type = v.tag === t('install.free_space') ? t('install.unknown') : (v.fs_type || t('install.unknown'))
+    const type = isFreeSpace(v) ? t('install.unknown') : (v.fs_type || t('install.unknown'))
     return {
       ...v,
       type,
@@ -362,57 +288,38 @@ const tData = computed(() => {
   })
 })
 
+// ============================================================
+// 生命周期
+// ============================================================
+
 onActivated(() => {
-  // 进入此页若无磁盘信息，则初始化分区状态
-  if (!installInfo.partInfoBefore?.length) {
-    // 当磁盘没有分区时，创建一个空闲空间分区作为原始状态
-    const diskSize = installInfo.diskSize || 0
-    if (diskSize > 0) {
-      const freeSpacePartition = {
-        name: t('install.free_space'),
-        dev_path: installInfo.disk || '',
-        size: diskSize.toString(),
-        fs_type: null,
-        mountpoint: null,
-        uuid: `free-${Date.now()}`,
-        flags: [],
-        start: 0, // 设置起始位置为0
-        type: '',
-        status: '',
-        tag: t('install.free_space'),
-        loadPoint: ''
-      }
-      // partInfoBefore 保存原始的空磁盘状态（空闲空间）
-      installInfo.partInfoBefore = [freeSpacePartition]
-      // partInfo 也设置为空闲空间分区，这样表格会显示磁盘信息
-      installInfo.partInfo = [freeSpacePartition]
-    }
+  // 首次进入时：初始化 partInfo（真实磁盘数据）并深拷贝到 partInfoManual
+  if (!installInfo.partInfo?.length) {
+    // partInfo 为空：初始化整盘空闲
+    installInfo.partInfo = initEmptyDisk(
+      Number(installInfo.diskSize) || 0,
+      installInfo.disk,
+      t('install.free_space')
+    )
+  } else if (!installInfo.partInfoBefore?.length) {
+    // 首次进入但 partInfoBefore 为空：规范化 partInfo 并保存为原始状态
+    installInfo.partInfo = normalizePartInfo(
+      installInfo.partInfo,
+      Number(installInfo.diskSize) || 0,
+      installInfo.disk,
+      t('install.free_space')
+    )
+    installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
+  }
+  // 仅在 partInfoManual 为空（首次从 DiskPartition.vue 进入）时初始化为真实磁盘数据。
+  // 从 DiskPartitionInfo.vue 返回时保留 partInfoManual 已编辑的数据。
+  if (!installInfo.partInfoManual?.length) {
+    installInfo.partInfoManual = JSON.parse(JSON.stringify(installInfo.partInfo))
   }
   if (installInfo.disk) {
     selectedDisk.value = installInfo.disk
   }
   selectedPartition.value = null
-})
-
-onMounted(() => {
-  // 确保在组件挂载时也检查分区状态
-  if (!installInfo.partInfo?.length && installInfo.diskSize && installInfo.diskSize > 0) {
-    const freeSpacePartition = {
-      name: t('install.free_space'),
-      dev_path: installInfo.disk || '',
-      size: installInfo.diskSize.toString(),
-      fs_type: null,
-      mountpoint: null,
-      uuid: `free-${Date.now()}`,
-      flags: [],
-      start: 0, // 设置起始位置为0
-      type: '',
-      status: '',
-      tag: t('install.free_space'),
-      loadPoint: ''
-    }
-    installInfo.partInfo = [freeSpacePartition]
-  }
 })
 
 defineExpose({
