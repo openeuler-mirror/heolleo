@@ -27,7 +27,7 @@
 import { computed, type PropType } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatSize } from '@/utils/utils.ts'
-import { DISK_OTHERS_COLOR, DISK_PART_PALETTE, PartInfo } from '@/utils/constant.ts'
+import { DISK_PART_PALETTE, PartInfo } from '@/utils/constant.ts'
 
 const { t } = useI18n()
 
@@ -50,18 +50,22 @@ const props = defineProps({
   noLegend: Boolean
 })
 
+/**
+ * 按物理位置 (start) 升序排序，使可视化与实际磁盘布局一致。
+ * 参考 anaconda：分区图按磁盘物理顺序排列，而非按大小排列。
+ *
+ * 注意：过滤掉 delete 指令分区，避免与同位置的 free 区域重复计入总大小。
+ */
 const sortedList = computed<LegendItem[]>(() => {
   let dList: PartInfo[] = [];
   if (Array.isArray(props.dataList)) {
     dList = props.dataList
   }
-  const list = dList.slice().sort((v1, v2) => {
-    const size1 = Number(v1.size)
-    const size2 = Number(v2.size)
-    if (size1 === size2) {
-      return v1.tag > v2.tag ? 1 : -1
-    }
-    return size2 - size1
+  // 过滤掉 delete 指令分区（它们与释放出的 free 区域物理位置重叠）
+  const filtered = dList.filter(p => p.status !== 'delete')
+  // 按物理位置排序
+  const list = filtered.slice().sort((v1, v2) => {
+    return Number(v1.start) - Number(v2.start)
   })
   const res: LegendItem[] = []
   for (let i = 0; i < list.length; i++) {
@@ -79,7 +83,7 @@ const sortedList = computed<LegendItem[]>(() => {
 
 const partitionWidths = computed(() => {
   const totalSize = sortedList.value.reduce((sum, p) => sum + Number(p.size), 0);
-  
+
   // 如果总大小为0，但存在分区数据，则显示100%宽度的空闲分区
   if (totalSize === 0 && sortedList.value.length > 0) {
     return sortedList.value.map(p => ({
@@ -87,7 +91,7 @@ const partitionWidths = computed(() => {
       width: '100%'
     }));
   }
-  
+
   if (totalSize === 0) return [];
 
   const minWidth = 3; // 3% minimum width

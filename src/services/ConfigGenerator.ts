@@ -1,5 +1,7 @@
-import { InstallInfo, PartInfo } from '@/utils/constant'
+import { InstallInfo, PartInfo, DISK_LAYOUT } from '@/utils/constant'
 import { PasswordUtils } from '@/utils/passwordUtils'
+
+const { MIB, GPT_START_OFFSET } = DISK_LAYOUT
 
 export interface ArchinstallConfig {
   app_config: null
@@ -98,6 +100,10 @@ export class ConfigGenerator {
     })
   }
 
+  /**
+   * 将尺寸字符串/数字解析为字节数（1MiB 对齐，向下取整）。
+   * 支持纯数字（字节）与带单位字符串（G/M/K）。
+   */
   private static parseSizeToBytes(sizeStr: string | number): number {
     if (!sizeStr) return 0;
     const sizeMatch = String(sizeStr).match(/^([\d.]+)([GMK]?)B?$/i);
@@ -123,42 +129,59 @@ export class ConfigGenerator {
         break;
     }
 
-    return res - Math.abs(res % (1024 * 1024));  //1MiB对齐
-
+    // 1MiB 对齐（向下取整）
+    return res - Math.abs(res % MIB);
   }
 
+  /**
+   * 将 PartInfo 转换为 archinstall 分区配置。
+   *
+   * 单位约定（前端内部）：
+   *   - PartInfo.size  : 字节字符串
+   *   - PartInfo.start : 字节数字
+   *
+   * archinstall 期望：
+   *   - size.value  : 字节
+   *   - start.value : 字节；archinstall 内部会按 sector_size 换算
+   *   - status      : 'create' | 'existing' | 'delete'
+   *
+   * 状态映射（前端 → archinstall）：
+   *   - 'existing' → 'existing'（保留分区，仅可能改挂载点）
+   *   - 'create'   → 'create'（新建分区，dev_path=null）
+   *   - 'delete'   → 'delete'（删除分区，保留原 dev_path 用于定位）
+   *
+   * 注意：前端 'format' 状态不在此函数处理。
+   *   格式化 = 先删除原分区 + 再在同一位置创建新分区，
+   *   由调用方 generateConfig 拆分为 delete + create 两条指令。
+   *
+   * 参考 anaconda：delete/existing 分区必须保留原始 dev_path，以便定位物理分区。
+   */
   private static async convertPartInfoToArchinstall(partInfo: PartInfo, sectorSize: number, diskDevice: string): Promise<any> {
+    console.log(`status:  ${partInfo.status}, mountpoint: ${partInfo.loadPoint}, start: ${partInfo.start}, size: ${partInfo.size}`)
 
-    console.log(`status:  ${partInfo.status}`)
     // 根据分区的挂载点动态生成 BTRFS 子卷配置
     const btrfs_subvolumes = (partInfo.fs_type === 'btrfs')
       ? this.generateBtrfsSubvolumes(partInfo.loadPoint)
       : [];
 
-    // 对于 delete 和 existing 状态，使用 sectors 作为单位，value 为实际起始扇区
-    // 对于 create 状态，使用 B 作为单位，value 为字节
-    const startUnit = (partInfo.status === 'delete' || partInfo.status === 'existing') ? 'sectors' : 'B';
-    
-    // 处理 start 值为 null 的情况，确保有合理的默认值
-    const originalStart = partInfo.start !== null ? partInfo.start : 0;
-    let startValue = originalStart;
+    // 统一使用字节作为 start 的单位，value 为字节数（1MiB 对齐）
+    const startValue = Number(partInfo.start) || 0
+    // 统一 size 单位为字节
+    const sizeValue = Number(partInfo.size) || 0
 
-    // 对于 delete 和 existing 状态的分区，从磁盘系统获取实际的起始扇区
-    if (partInfo.status === 'delete' || partInfo.status === 'existing') {
-       startValue = Math.ceil(originalStart / sectorSize);
+    console.log(`${partInfo.fs_type} ========= ${partInfo.loadPoint}`)
+    // 合并前端 flags 与根据挂载点推断的标志
+    const flagsArr: string[] = [...(partInfo.flags || [])]
+    if (partInfo.fs_type === 'fat32' || partInfo.loadPoint === '/boot' || partInfo.loadPoint === '/boot/efi') {
+      if (!flagsArr.includes('boot')) flagsArr.push('boot')
+      if (!flagsArr.includes('esp')) flagsArr.push('esp')
     }
 
-    console.log(`${partInfo.fs_type} ========= ${partInfo.loadPoint}`);
-    const flagsArr: string[] = [];
-    if(partInfo.fs_type === 'fat32' || partInfo.loadPoint === '/boot' || partInfo.loadPoint === '/boot/efi'){
-      flagsArr.push('boot');
-      flagsArr.push('esp');
-    }
+    // 状态直接透传：existing / create / delete（format 已在调用方拆分）
+    const archinstallStatus: string = partInfo.status || 'existing'
 
-    let dev_path_arg = partInfo.dev_path;
-    if(partInfo.status == 'create') {
-      dev_path_arg = null;
-    }
+    // delete/existing 分区保留原始 dev_path 用于定位；create 分区 dev_path 为 null
+    const dev_path_arg = partInfo.status === 'create' ? null : partInfo.dev_path
 
     return {
       btrfs: btrfs_subvolumes,
@@ -166,19 +189,19 @@ export class ConfigGenerator {
       flags: flagsArr,
       fs_type: partInfo.fs_type,
       mount_options: [],
-      mountpoint: partInfo.loadPoint,
-      obj_id: partInfo.uuid, // Use UUID from installInfo
+      mountpoint: partInfo.loadPoint || null,
+      obj_id: partInfo.uuid,
       size: {
         sector_size: { unit: 'B', value: sectorSize },
         unit: 'B',
-        value: partInfo.size
+        value: sizeValue
       },
       start: {
         sector_size: { unit: 'B', value: sectorSize },
-        unit: startUnit,
+        unit: 'B',
         value: startValue
       },
-      status: partInfo.status,
+      status: archinstallStatus,
       type: 'primary'
     };
   }
@@ -327,6 +350,13 @@ export class ConfigGenerator {
         }
       }
 
+      // 自动分区布局（统一使用字节作为单位，1MiB 对齐）：
+      // - EFI 分区：从 1MiB 开始，大小 512MiB
+      // - root/LVM 分区：从 513MiB 开始，占用剩余空间
+      const efiSizeBytes = 512 * MIB
+      const efiStartBytes = GPT_START_OFFSET              // 1MiB
+      const rootStartBytes = efiStartBytes + efiSizeBytes // 513MiB
+
       const efiPartition = {
         btrfs: [],
         dev_path: null,
@@ -335,15 +365,16 @@ export class ConfigGenerator {
         mount_options: [],
         mountpoint: efiMountPoint,
         obj_id: this.generateUUID(),
-        size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "MiB", value: 512 },
-        start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "MiB", value: 1 },
+        size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: efiSizeBytes },
+        start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: efiStartBytes },
         status: "create",
         type: "primary"
       };
 
       if (installInfo.useLvm) {
-        // LVM 逻辑
+        // LVM 逻辑：EFI + LVM PV（占剩余空间），LVM 内划分 root + home
         const lvmPartitionId = this.generateUUID();
+        const lvmSizeBytes = Math.max(0, totalDiskSizeInBytes - rootStartBytes);
         const lvmPartition = {
           btrfs: [],
           dev_path: null,
@@ -352,8 +383,8 @@ export class ConfigGenerator {
           mount_options: [],
           mountpoint: "/",
           obj_id: lvmPartitionId,
-          size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: totalDiskSizeInBytes - (513 * 1024 * 1024) },  //
-          start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "MiB", value: 513 },
+          size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: lvmSizeBytes },
+          start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: rootStartBytes },
           status: "create",
           type: "primary"
         };
@@ -364,8 +395,8 @@ export class ConfigGenerator {
           wipe: true
         });
 
-        const rootVolSize = 20 * 1024 * 1024 * 1024; // 20 GiB in bytes
-        const homeVolSize = totalDiskSizeInBytes - (512 * 1024 * 1024) - rootVolSize;
+        const rootVolSize = 20 * 1024 * 1024 * 1024; // 20 GiB
+        const homeVolSize = Math.max(0, lvmSizeBytes - rootVolSize);
 
         disk_config = {
           config_type: "default_layout",
@@ -404,7 +435,8 @@ export class ConfigGenerator {
           }
         };
       } else {
-        // 非 LVM 逻辑
+        // 非 LVM 逻辑：EFI + root（占剩余空间）
+        const rootSizeBytes = Math.max(0, totalDiskSizeInBytes - rootStartBytes);
         const rootPartition = {
           btrfs: [],
           dev_path: null,
@@ -413,12 +445,12 @@ export class ConfigGenerator {
           mount_options: [],
           mountpoint: "/",
           obj_id: this.generateUUID(),
-          size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: totalDiskSizeInBytes - (514 * 1024 * 1024) },
-          start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "MiB", value: 513 },
+          size: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: rootSizeBytes },
+          start: { sector_size: { unit: "B", value: actualSectorSize }, unit: "B", value: rootStartBytes },
           status: "create",
           type: "primary"
         };
-        
+
         deviceModifications.push({
           device: installInfo.disk,
           partitions: [efiPartition, rootPartition],
@@ -452,20 +484,52 @@ export class ConfigGenerator {
         }
       }
 
-      const finalParts = installInfo.partInfo.filter(p =>
-        p.status == 'delete' || p.status == 'existing' || p.status == 'create' ||
-        p.loadPoint // 只保留有挂载点的分区项
-      );
-      
-      // 对分区进行排序：delete → existing → create
-      const sortedModifications = finalParts.sort((a: any, b: any) => {
-        const statusOrder: Record<string, number> = { 'delete': 0, 'existing': 1, 'create': 2 };
-        const orderA = statusOrder[a.status] ?? 3; // 默认值处理未知状态
-        const orderB = statusOrder[b.status] ?? 3;
-        return orderA - orderB;
-      });
+      // 手动分区：过滤掉空闲区域（status='free'），只保留有效的操作指令
+      // archinstall 需要的 status: 'delete' | 'existing' | 'create'
+      //
+      // 格式化（format）语义：先删除原分区，再在同一位置创建新分区
+      // 因此将每个 format 分区拆分为两条指令：
+      //   1. delete 指令（保留原 dev_path，用于定位物理分区）
+      //   2. create 指令（dev_path=null，使用新的 fs_type/flags/mountpoint）
+      const finalParts = installInfo.partInfoManual.filter(p =>
+        p.status === 'delete' || p.status === 'existing' || p.status === 'create' || p.status === 'format'
+      )
 
-      console.log('排序后的分区:', sortedModifications.map(p => ({ status: p.status, mountpoint: p.loadPoint })));
+      // 将 format 分区拆分为 delete + create 两条指令
+      // delete 使用 originalSize（格式化前的原始大小），create 使用 size（可能已调整）
+      const expandedParts: PartInfo[] = []
+      for (const p of finalParts) {
+        if (p.status === 'format') {
+          // delete 指令：保留原始 dev_path 用于定位，使用原始大小
+          expandedParts.push({
+            ...p,
+            status: 'delete',
+            size: p.originalSize || p.size,
+            originalSize: undefined,
+          })
+          // create 指令：在同一位置创建新分区，使用新大小（p.size）
+          expandedParts.push({
+            ...p,
+            status: 'create',
+            dev_path: null,
+            uuid: this.generateUUID(),
+            originalSize: undefined,
+          })
+        } else {
+          expandedParts.push(p)
+        }
+      }
+
+      // 对分区进行排序：delete → existing → create
+      // 参考 archinstall：删除操作必须先于创建操作，以便释放物理空间
+      const sortedModifications = expandedParts.sort((a: any, b: any) => {
+        const statusOrder: Record<string, number> = { 'delete': 0, 'existing': 1, 'create': 2 }
+        const orderA = statusOrder[a.status] ?? 3
+        const orderB = statusOrder[b.status] ?? 3
+        return orderA - orderB
+      })
+
+      console.log('排序后的分区:', sortedModifications.map(p => ({ status: p.status, mountpoint: p.loadPoint, start: p.start, size: p.size })))
 
       deviceModifications.push({
         device: installInfo.disk,

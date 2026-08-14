@@ -6,7 +6,7 @@ const path = require('path')
 // 文件系统类型映射函数
 function mapFileSystemType(fsType) {
   if (!fsType) return null;
-  
+
   const fsTypeMap = {
     'vfat': 'fat32',
     'fat32': 'fat32',
@@ -22,13 +22,8 @@ function mapFileSystemType(fsType) {
     'iso9660': 'iso9660',
     'udf': 'udf'
   };
-  
-  return fsTypeMap[fsType.toLowerCase()] || fsType;
-}
 
-// 检查root权限
-function checkRoot() {
-  return process.getuid && process.getuid() === 0
+  return fsTypeMap[fsType.toLowerCase()] || fsType;
 }
 
 // 获取启动模式(UEFI/BIOS)
@@ -40,128 +35,105 @@ function getBootMode() {
   }
 }
 
-function registerIpcListeners() {
-  // 检查root权限
-  ipcMain.handle('check-root', () => {
-    return { isRoot: checkRoot() }
-  })
+// 准备块设备：清除多路径、更新分区表、等待设备事件完成
+function prepareBlockDevices() {
+  const commands = [
+    { cmd: 'sudo multipath -F', warn: 'multipath -F failed (maybe multipath not installed)' },
+    { cmd: 'sudo partprobe', warn: 'partprobe failed' },
+    { cmd: 'sudo udevadm settle', warn: 'udevadm settle failed' },
+  ]
+  for (const { cmd, warn } of commands) {
+    try {
+      execSync(cmd)
+    } catch (error) {
+      console.warn(`${warn}:`, error.message)
+    }
+  }
+}
 
+// 获取当前系统根文件系统所在的磁盘设备名（用于排除系统盘）
+function getRootDiskDevice() {
+  try {
+    // 使用精确匹配，避免误匹配子目录挂载点（如 /home、/boot）
+    const mountOutput = execSync('mount | grep " on / type"').toString().trim()
+    const parts = mountOutput.split(/\s+/)
+    if (parts.length > 0) {
+      const rootDevice = parts[0]
+      if (rootDevice.startsWith('/dev/')) {
+        // 优先使用 lsblk PKNAME 获取父设备名，可靠处理 NVMe/MMC/SCSI/SATA/LVM 等命名
+        try {
+          const pkname = execSync(`lsblk -no PKNAME ${rootDevice}`).toString().trim()
+          if (pkname) {
+            return pkname
+          }
+        } catch (e) {
+          console.warn('Failed to get PKNAME via lsblk:', e.message)
+        }
+        // 回退：手动剥离分区后缀，正确处理 NVMe(nvme0n1p2)、MMC(mmcblk0p1)、SCSI/SATA(sda1)
+        const deviceName = rootDevice.replace('/dev/', '').replace(/p?\d+$/, '')
+        return deviceName
+      }
+    }
+    return null
+  } catch (error) {
+    console.warn('Failed to get root disk device:', error.message)
+    return null
+  }
+}
+
+/**
+ * 获取磁盘上所有分区的起始扇区（每个磁盘仅调用一次 fdisk，避免 N+1 问题）。
+ * @param {string} diskName 磁盘名，如 sda
+ * @returns {Map<string, number>} 分区名 → 起始扇区 的映射；获取失败返回空 Map
+ */
+function getPartitionStartSectors(diskName) {
+  const startSectors = new Map()
+  try {
+    const fdiskOutput = execSync(`sudo fdisk -l /dev/${diskName} 2>/dev/null || true`).toString()
+    for (const line of fdiskOutput.split('\n')) {
+      const trimmed = line.trim()
+      // fdisk 分区行以 /dev/ 开头
+      if (!trimmed.startsWith('/dev/')) continue
+      const cols = trimmed.split(/\s+/)
+      if (cols.length < 2) continue
+      const partName = cols[0].replace('/dev/', '')
+      const startSector = parseInt(cols[1], 10)
+      if (!isNaN(startSector)) {
+        startSectors.set(partName, startSector)
+      }
+    }
+  } catch (error) {
+    console.warn(`Failed to get start sectors for disk ${diskName}:`, error.message)
+  }
+  return startSectors
+}
+
+// 根据挂载点和文件系统类型推断分区标志
+function inferPartitionFlags(partition) {
+  const flags = []
+  if (partition.mountpoint === '/boot/efi' || partition.fstype === 'vfat') {
+    flags.push('boot', 'esp')
+  }
+  if (partition.mountpoint === '/boot') {
+    flags.push('bls_boot')
+  }
+  return flags
+}
+
+function registerIpcListeners() {
   // 获取启动模式
   ipcMain.handle('get-boot-mode', () => {
     return { mode: getBootMode() }
   })
+
   ipcMain.on('close-app', () => {
     app.quit()
-  })
-
-  // 卸载磁盘核心逻辑
-  function unmountDisk(disk) {
-    try {
-      // 检查哪些分区被挂载
-      const mounted = execSync(`mount | grep ${disk} | awk '{print $1}' || true`).toString().trim()
-      if (mounted) {
-        // 尝试正常卸载
-        mounted.split('\n').forEach(part => {
-          try { execSync(`umount ${part}`) } catch {}
-        })
-        
-        // 强制卸载剩余分区
-        const partitions = execSync(`ls ${disk}* 2>/dev/null || true`).toString().trim()
-        if (partitions) {
-          partitions.split('\n').forEach(part => {
-            try { execSync(`umount -f ${part}`) } catch {}
-            try { execSync(`umount -l ${part}`) } catch {}
-          })
-        }
-
-        // 终止使用分区的进程
-        execSync(`fuser -km ${disk} 2>/dev/null || true`)
-        execSync(`lsof | grep ${disk} | awk '{print $2}' | xargs kill -9 2>/dev/null || true`)
-      }
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
-  }
-
-  // 卸载分区
-  ipcMain.handle('unmount-disk', (event, { disk }) => {
-    return unmountDisk(disk)
-  })
-
-  // 磁盘分区
-  ipcMain.handle('partition-disk', async (event, { disk, bootMode }) => {
-    try {
-      // 检查root权限
-      if (!checkRoot()) {
-        throw new Error('需要root权限执行磁盘分区操作')
-      }
-
-      // 检查磁盘设备是否存在
-      if (!fs.existsSync(disk)) {
-        throw new Error(`磁盘设备 ${disk} 不存在`)
-      }
-
-      // 检查分区工具是否可用
-      // 检查并安装必要的分区工具
-      try {
-        execSync('which parted && which mkfs.fat && which mkfs.ext4')
-      } catch (checkError) {
-        console.log('正在安装必要的分区工具...')
-        execSync('dnf install -y parted dosfstools e2fsprogs', {stdio: 'inherit'})
-        try {
-          execSync('which parted && which mkfs.fat && which mkfs.ext4')
-        } catch (finalError) {
-          throw new Error('缺少必要的分区工具(parted/mkfs.fat/mkfs.ext4)，且自动安装失败: ' + finalError.message)
-        }
-      }
-
-      // 卸载磁盘
-      const { success: unmountSuccess } = unmountDisk(disk)
-      if (!unmountSuccess) {
-        throw new Error('无法卸载磁盘')
-      }
-
-      // 清除磁盘签名
-      execSync(`wipefs -af ${disk}`)
-      
-      // 创建GPT分区表
-      execSync(`parted -s ${disk} mklabel gpt`)
-      
-      if (bootMode === 'uefi') {
-        // UEFI模式分区方案
-        execSync(`parted -s ${disk} mkpart primary fat32 1MiB 301MiB`)
-        execSync(`parted -s ${disk} set 1 esp on`)
-        execSync(`parted -s ${disk} mkpart primary ext4 301MiB 1301MiB`)  // /boot分区 (1GB)
-        execSync(`parted -s ${disk} mkpart primary ext4 1301MiB 100%`)    // 根分区
-        
-        // 格式化分区
-        execSync(`mkfs.fat -F32 -n "EFI" ${disk}1`)
-        execSync(`mkfs.ext4 -F -L "BOOT" ${disk}2`)
-        execSync(`mkfs.ext4 -F -L "ROOT" ${disk}3`)
-      } else {
-        // BIOS模式分区方案
-        execSync(`parted -s ${disk} mkpart primary ext4 1MiB 2MiB`)
-        execSync(`parted -s ${disk} set 1 bios_grub on`)
-        execSync(`parted -s ${disk} mkpart primary ext4 2MiB 100%`)
-        execSync(`mkfs.ext4 -F -L "ROOT" ${disk}2`)
-      }
-      
-      return { success: true }
-    } catch (error) {
-      console.error('磁盘分区失败:', error)
-      return {
-        success: false,
-        error: error.message,
-        suggestion: '请检查: 1) 是否以root权限运行 2) 磁盘设备是否正确 3) 磁盘是否被占用'
-      }
-    }
   })
 
   // 安装系统
   ipcMain.handle('install-system', async (event, { configPath, userConfigPath }) => {
     const webContents = event.sender
-    
+
     let installCommand
     if (userConfigPath) {
       // 使用两个配置文件：eulerinstall配置和用户配置
@@ -170,7 +142,7 @@ function registerIpcListeners() {
       // 只使用eulerinstall配置文件
       installCommand = `sudo eulerinstall --config ${configPath} --silent`
     }
-    
+
     console.log('Install command:', installCommand)
     const installProcess = exec(installCommand);
 
@@ -197,62 +169,6 @@ function registerIpcListeners() {
     })
   })
 
-  // 挂载镜像
-  ipcMain.handle('mount-image', (event, { imagePath, mountPoint }) => {
-    try {
-      execSync(`mkdir -p ${mountPoint}`)
-      execSync(`mount -o loop ${imagePath} ${mountPoint}`)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
-  })
-
-  // 文件复制
-  ipcMain.handle('copy-files', (event, { source, destination }) => {
-    try {
-      execSync(`cp -r ${source} ${destination}`)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
-  })
-
-  // GRUB配置
-  ipcMain.handle('configure-grub', (event, { disk, bootMode, rootPath }) => {
-    try {
-      // 检查并创建rootPath目录
-      if (!fs.existsSync(rootPath)) {
-        fs.mkdirSync(rootPath, { recursive: true })
-      }
-      if (bootMode === 'uefi') {
-        // UEFI模式GRUB安装
-        execSync(`chroot ${rootPath} grub2-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=openEuler`)
-        execSync(`chroot ${rootPath} grub2-mkconfig -o /boot/efi/EFI/openEuler/grub.cfg`)
-      } else {
-        // BIOS模式GRUB安装
-        execSync(`chroot ${rootPath} grub2-install ${disk}`)
-        execSync(`chroot ${rootPath} grub2-mkconfig -o /boot/grub2/grub.cfg`)
-      }
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
-  })
-
-  // 清理安装环境
-  ipcMain.handle('cleanup-install', (event, { rootPath }) => {
-    try {
-      // 卸载所有挂载点
-      execSync(`umount -R ${rootPath} 2>/dev/null || true`)
-      // 删除临时文件
-      execSync(`rm -rf ${rootPath}/var/cache/dnf/*`)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
-  })
-
   // 重启系统
   ipcMain.handle('reboot-system', () => {
     try {
@@ -267,7 +183,7 @@ function registerIpcListeners() {
   ipcMain.handle('save-config-file', async (event, { filepath, content }) => {
     try {
       const resolvedPath = path.resolve(filepath)
-      
+
       let realPath
       try {
         realPath = fs.realpathSync(resolvedPath, { encoding: 'utf8' })
@@ -278,29 +194,29 @@ function registerIpcListeners() {
           throw err
         }
       }
-      
+
       const SENSITIVE_PATHS = [
         '/etc', '/usr', '/bin', '/sbin', '/boot', '/lib', '/lib64',
         '/var', '/root', '/home', '/dev', '/proc', '/sys', '/opt'
       ]
-      
+
       for (const sensitivePath of SENSITIVE_PATHS) {
         if (realPath.startsWith(sensitivePath)) {
           console.error(`Path rejected: ${resolvedPath} resolves to ${realPath} which is in sensitive directory ${sensitivePath}`)
           return { success: false, error: '路径被拒绝：禁止写入系统敏感目录' }
         }
       }
-      
+
       if (!realPath.startsWith('/tmp/')) {
         console.error(`Path rejected: ${resolvedPath} resolves to ${realPath} which is not under /tmp/`)
         return { success: false, error: '路径被拒绝：仅允许保存至 /tmp 目录' }
       }
-      
+
       const dir = path.dirname(resolvedPath)
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true })
       }
-      
+
       const fd = fs.openSync(resolvedPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW, 0o600)
       try {
         fs.writeFileSync(fd, content, 'utf8')
@@ -317,235 +233,74 @@ function registerIpcListeners() {
   // 获取所有磁盘信息 - 优化版本
   ipcMain.handle('get-disk-info', async () => {
     try {
-      // 清除多路径设备并更新分区表，等待设备事件完成
-      try {
-        execSync('sudo multipath -F');
-      } catch (error) {
-        console.warn('multipath -F failed (maybe multipath not installed):', error.message);
-      }
-      try {
-        execSync('sudo partprobe');
-      } catch (error) {
-        console.warn('partprobe failed:', error.message);
-      }
-      // 等待设备事件完成，确保内核更新设备信息
-      try {
-        execSync('sudo udevadm settle');
-      } catch (error) {
-        console.warn('udevadm settle failed:', error.message);
-      }
-      
-      // 获取基本磁盘信息（只使用lsblk，避免额外的系统调用）
-      const lsblkOutput = execSync('lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,UUID,PATH').toString();
-      const { blockdevices } = JSON.parse(lsblkOutput);
-      console.log('blockdevices:', blockdevices);
+      // 准备块设备：清除多路径、更新分区表、等待设备事件完成
+      prepareBlockDevices()
 
-      // 获取当前系统根文件系统所在的磁盘设备
-      function getRootDiskDevice() {
-        try {
-          // 使用更精确的匹配，避免误匹配子目录挂载点（如 /home、/boot）
-          const mountOutput = execSync('mount | grep " on / type"').toString().trim();
-          const parts = mountOutput.split(/\s+/);
-          if (parts.length > 0) {
-            const rootDevice = parts[0];
-            if (rootDevice.startsWith('/dev/')) {
-              // 优先使用 lsblk PKNAME 获取父设备名，可靠处理 NVMe/MMC/SCSI/SATA/LVM 等命名
-              try {
-                const pkname = execSync(`lsblk -no PKNAME ${rootDevice}`).toString().trim();
-                if (pkname) {
-                  return pkname;
-                }
-              } catch (e) {
-                console.warn('Failed to get PKNAME via lsblk:', e.message);
-              }
-              // 回退：手动剥离分区后缀，正确处理 NVMe(nvme0n1p2)、MMC(mmcblk0p1)、SCSI/SATA(sda1)
-              const deviceName = rootDevice.replace('/dev/', '').replace(/p?\d+$/, '');
-              return deviceName;
-            }
-          }
-          return null;
-        } catch (error) {
-          console.warn('Failed to get root disk device:', error.message);
-          return null;
-        }
-      }
+      // 获取基本磁盘信息（只使用 lsblk，避免额外的系统调用）
+      const lsblkOutput = execSync('lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,UUID,PATH').toString()
+      const { blockdevices } = JSON.parse(lsblkOutput)
+      console.log('blockdevices:', blockdevices)
 
-      const rootDiskDevice = getRootDiskDevice();
-      console.log('Root disk device:', rootDiskDevice);
+      // 获取当前系统根文件系统所在的磁盘设备（用于排除系统盘）
+      const rootDiskDevice = getRootDiskDevice()
+      console.log('Root disk device:', rootDiskDevice)
 
-      // 快速处理磁盘信息，避免对每个磁盘执行parted和blockdev
-      const disks = blockdevices
-        .filter(device => device.type === 'disk' && device.path && (rootDiskDevice === null || device.name !== rootDiskDevice))
-        .map(disk => {
-          // 简化的分区信息处理
-          const partitions = disk.children?.map(part => {
-            // 智能推断分区标志，避免parted调用
-            const flags = [];
-            if (part.mountpoint === '/boot/efi' || part.fstype === 'vfat') {
-              flags.push('boot', 'esp');
-            }
-            if (part.mountpoint === '/boot') {
-              flags.push('bls_boot');
-            }
+      // 默认逻辑扇区大小（字节）
+      const DEFAULT_SECTOR_SIZE = 512
 
-            // 获取分区起始扇区
-            let startSector;
-            try {
-              // 使用fdisk获取分区起始扇区
-              const fdiskOutput = execSync(`sudo fdisk -l /dev/${disk.name} 2>/dev/null || true`).toString();
-              const lines = fdiskOutput.split('\n');
-              for (const line of lines) {
-                if (line.includes(`/dev/${part.name}`)) {
-                  const parts = line.trim().split(/\s+/);
-                  if (parts.length >= 3) {
-                    startSector = parseInt(parts[1], 10);
-                    console.log(`${part.name} --- ${parts[1]} --- ${startSector}`);
-                    break;
-                  }
-                }
-              }
-            } catch (error) {
-              console.warn(`Failed to get start sector for partition ${part.name}:`, error.message);
-              // 如果获取失败，使用默认值1
-              startSector = 2048;
-            }
+      // 过滤出可用磁盘（排除系统盘与环回设备）
+      const availableDisks = blockdevices.filter(
+        device => device.type === 'disk'
+          && device.path
+          && (rootDiskDevice === null || device.name !== rootDiskDevice)
+      )
 
-            console.log(part.fstype);
-            fs_typee = mapFileSystemType(part.fstype)
-            console.log(fs_typee);
+      // 处理每块磁盘及其分区
+      const disks = availableDisks.map(disk => {
+        // 每个磁盘仅调用一次 fdisk 获取所有分区的起始扇区（避免 N+1 调用）
+        const startSectorsMap = getPartitionStartSectors(disk.name)
+        // 保守推断扇区大小：fdisk 无法可靠输出，使用默认值 512
+        // （start 字段返回字节，前端已统一按字节处理，扇区大小仅作为元数据）
+        const sectorSize = DEFAULT_SECTOR_SIZE
 
-            return {
-              name: part.name,
-              dev_path: part.path,
-              size: parseInt(part.size, 10),
-              fs_type: mapFileSystemType(part.fstype),
-              mountpoint: part.mountpoint || null,
-              uuid: part.uuid || null,
-              flags: flags,
-              start: startSector * 512, // 获取实际的起始扇区
-              type: 'primary', // 默认类型
-            };
-          }) || [];
-
+        const partitions = (disk.children || []).map(part => {
+          const startSector = startSectorsMap.get(part.name) ?? 2048
           return {
-            name: disk.name,
-            device: disk.path,
-            size: parseInt(disk.size, 10) - 1024 * 1024,   // 最后1MiB为GPT分区表备份数据使用，提前预留出来
-            type: disk.type,
-            mountpoint: disk.mountpoint || null,
-            sector_size: 512, // 使用默认值，避免blockdev调用
-            partitions: partitions
-          };
-        });
+            name: part.name,
+            dev_path: part.path,
+            size: parseInt(part.size, 10),
+            fs_type: mapFileSystemType(part.fstype),
+            mountpoint: part.mountpoint || null,
+            uuid: part.uuid || null,
+            flags: inferPartitionFlags(part),
+            // 起始字节 = 起始扇区 × 扇区大小
+            start: startSector * sectorSize,
+            type: 'primary',
+          }
+        })
 
-      console.log('Optimized disks info retrieved, count:', disks.length);
-      return { success: true, disks };
+        return {
+          name: disk.name,
+          device: disk.path,
+          // 返回磁盘真实大小：GPT 备份头（最后 33 扇区 ≈ 16.5KiB）的保护
+          // 由底层分区工具（sgdisk/parted/fdisk）在创建分区时自动处理，
+          // 与 anaconda/archinstall 一致，不在采集阶段预扣磁盘大小。
+          size: parseInt(disk.size, 10),
+          type: disk.type,
+          mountpoint: disk.mountpoint || null,
+          sector_size: sectorSize,
+          partitions,
+        }
+      })
+
+      console.log('Optimized disks info retrieved, count:', disks.length)
+      return { success: true, disks }
     } catch (error) {
       console.error('Failed to get disk info:', error)
       return {
         success: false,
         error: error.message,
         suggestion: 'Please ensure lsblk command is available and try again'
-      }
-    }
-  })
-
-  // 通过磁盘名称获取分区详细信息
-  ipcMain.handle('get-disk-partitions', async (event, { diskName }) => {
-    try {
-      // 检查命令是否可用
-      try {
-        execSync('which lsblk && which df')
-      } catch {
-        throw new Error('Required commands (lsblk/df) not found')
-      }
-
-      // 验证磁盘是否存在
-      if (!fs.existsSync(`/dev/${diskName}`)) {
-        throw new Error(`Disk /dev/${diskName} not found`)
-      }
-
-      // 清除多路径设备并更新分区表，等待设备事件完成
-      try {
-        execSync('sudo multipath -F');
-      } catch (error) {
-        console.warn('multipath -F failed (maybe multipath not installed):', error.message);
-      }
-      try {
-        execSync('sudo partprobe');
-      } catch (error) {
-        console.warn('partprobe failed:', error.message);
-      }
-      // 等待设备事件完成，确保内核更新设备信息
-      try {
-        execSync('sudo udevadm settle');
-      } catch (error) {
-        console.warn('udevadm settle failed:', error.message);
-      }
-
-      // 获取分区基本信息
-      const lsblkOutput = execSync(`lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE /dev/${diskName}`).toString()
-      const { blockdevices } = JSON.parse(lsblkOutput)
-      
-      if (!blockdevices || blockdevices.length === 0) {
-        throw new Error('No partitions found for disk')
-      }
-
-      const disk = blockdevices[0]
-      const partitions = disk.children || []
-
-      // 获取分区使用情况
-      const partitionDetails = await Promise.all(partitions.map(async (part) => {
-        try {
-          const dfOutput = part.mountpoint
-            ? execSync(`df -h ${part.mountpoint} | tail -n +2`).toString().trim()
-            : null
-          
-          let used, available, percent
-          if (dfOutput) {
-            const [,,,usedStr, availStr, percentStr] = dfOutput.split(/\s+/)
-            used = usedStr
-            available = availStr
-            percent = percentStr
-          }
-
-          return {
-            name: part.name,
-            size: part.size,
-            fsType: mapFileSystemType(part.fstype) || 'unknown',
-            mountpoint: part.mountpoint || null,
-            used: used || null,
-            available: available || null,
-            percentUsed: percent || null
-          }
-        } catch (error) {
-          console.error(`Error getting usage for partition ${part.name}:`, error)
-          return {
-            name: part.name,
-            size: part.size,
-            fsType: part.fstype || 'unknown',
-            mountpoint: part.mountpoint || null,
-            used: null,
-            available: null,
-            percentUsed: null
-          }
-        }
-      }))
-
-      return {
-        success: true,
-        disk: {
-          name: disk.name,
-          size: disk.size,
-          partitions: partitionDetails
-        }
-      }
-    } catch (error) {
-      console.error('Failed to get disk partitions:', error)
-      return {
-        success: false,
-        error: error.message,
-        suggestion: 'Please check: 1) Disk exists 2) Required commands available'
       }
     }
   })
@@ -567,7 +322,7 @@ function registerIpcListeners() {
 
       // 使用fdisk获取扇区大小信息
       const fdiskOutput = execSync(`fdisk -l ${diskDevice} | grep "Sector size"`).toString().trim();
-      
+
       if (!fdiskOutput) {
         throw new Error('Could not determine sector size from fdisk output');
       }
@@ -579,7 +334,7 @@ function registerIpcListeners() {
       }
 
       const sectorSize = parseInt(sectorSizeMatch[1], 10);
-      
+
       return {
         success: true,
         sector_size: {
@@ -596,63 +351,6 @@ function registerIpcListeners() {
       };
     }
   });
-
-  // 获取分区起始扇区信息
-  ipcMain.handle('get-partition-start-sector', async (event, { diskDevice, partitionDevice }) => {
-    try {
-      // 检查fdisk命令是否可用
-      try {
-        execSync('which fdisk');
-      } catch {
-        throw new Error('Required command (fdisk) not found');
-      }
-
-      // 验证磁盘设备和分区设备是否存在
-      if (!fs.existsSync(diskDevice)) {
-        throw new Error(`Disk device ${diskDevice} not found`);
-      }
-      if (!fs.existsSync(partitionDevice)) {
-        throw new Error(`Partition device ${partitionDevice} not found`);
-      }
-
-      // 使用fdisk获取分区详细信息
-      const fdiskOutput = execSync(`fdisk -l ${diskDevice}`).toString();
-      
-      // 解析分区表，找到指定分区的起始扇区
-      const lines = fdiskOutput.split('\n');
-      let foundPartition = false;
-      let startSector = null;
-
-      for (const line of lines) {
-        // 查找分区行，例如: "/dev/sda1   *        2048    2099199    2097152   1G 83 Linux"
-        if (line.includes(partitionDevice)) {
-          const parts = line.trim().split(/\s+/);
-          if (parts.length >= 3) {
-            startSector = parseInt(parts[1], 10);
-            foundPartition = true;
-            break;
-          }
-        }
-      }
-
-      if (!foundPartition || startSector === null) {
-        throw new Error(`Could not find start sector for partition ${partitionDevice}`);
-      }
-
-      return {
-        success: true,
-        start_sector: startSector
-      };
-    } catch (error) {
-      console.error('Failed to get partition start sector:', error);
-      return {
-        success: false,
-        error: error.message,
-        suggestion: 'Please ensure fdisk command is available and partition device exists'
-      };
-    }
-  });
-
 }
 
 

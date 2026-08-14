@@ -112,6 +112,7 @@ const installInfo = reactive({
   installType: '',
   partitionType: '',
   partInfo: [],
+  partInfoManual: [],
   partInfoBefore: [],
   useLvm: false,
   sector_size: 512,
@@ -190,7 +191,6 @@ async function startInstall() {
     }
     
     // 执行安装逻辑
-    // 这里应该调用installService中的方法
     await new Promise(resolve => setTimeout(resolve, 1000)) // 模拟安装
     // 调用开始安装成功
     currentStepIndex.value++

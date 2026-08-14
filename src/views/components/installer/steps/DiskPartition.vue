@@ -37,7 +37,8 @@ import { computed, inject, onActivated, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
 import PartitionGraph from '@/views/components/installer/comp/PartitionGraph.vue'
-import { INSTALL_INFO_KEY } from "@/utils/constant.ts"
+import { INSTALL_INFO_KEY, DISK_LAYOUT } from "@/utils/constant.ts"
+import { normalizePartInfo, initEmptyDisk } from '@/utils/partitionUtils.ts'
 
 const { t } = useI18n()
 
@@ -55,18 +56,17 @@ import { InstallInfo } from '@/utils/constant.ts'
 
 const installInfo = inject<InstallInfo>(INSTALL_INFO_KEY)!
 async function checkValid() {
-  // 待添加表单验证
   installInfo.disk = form.disk
   installInfo.installType = form.installType
   installInfo.partitionType = form.partitionType
   installInfo.useLvm = form.useLvm
-  
+
   const selectedDisk = fullDiskInfo.value.find(d => `/dev/${d.name}` === form.disk)
   if (selectedDisk) {
     installInfo.diskSize = selectedDisk.size
-    installInfo.sector_size = selectedDisk.sector_size
+    installInfo.sector_size = selectedDisk.sector_size || DISK_LAYOUT.DEFAULT_SECTOR_SIZE
   }
-  
+
   return true
 }
 
@@ -80,33 +80,40 @@ const selectedDisk = computed(() => {
 })
 
 watch(selectedDisk, (newDisk) => {
-  if (newDisk) {
-    // 如果磁盘没有分区，创建一个空闲空间分区
-    if (!newDisk.partitions?.length) {
-      const freeSpacePartition = {
-        name: t('install.free_space'),
-        dev_path: `/dev/${newDisk.name}`,
-        size: newDisk.size.toString(),
-        fs_type: null,
-        mountpoint: null,
-        uuid: `free-${Date.now()}`,
-        flags: [],
-        start: 0,
-        type: '',
-        status: '',
-        tag: t('install.free_space'),
-        loadPoint: ''
-      }
-      installInfo.partInfo = [freeSpacePartition]
-    } else {
-      installInfo.partInfo = newDisk.partitions?.map(part => ({
-        ...part,
-        tag: part.name,
-        loadPoint: part.mountpoint || ''
-      })) || []
-    }
-    installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
+  if (!newDisk) return
+
+  const diskPath = `/dev/${newDisk.name}`
+  const diskSize = Number(newDisk.size) || 0
+  const freeSpaceLabel = t('install.free_space')
+
+  // 规范化后端返回的分区数据：统一单位、补全空闲区域、1MiB 对齐
+  // 后端返回的 start 已经是字节（startSector * 512），size 是字节
+  if (!newDisk.partitions?.length) {
+    // 无分区：整盘为空闲
+    installInfo.partInfo = initEmptyDisk(diskSize, diskPath, freeSpaceLabel)
+  } else {
+    // 有分区：规范化（补全空闲区域、对齐）
+    const rawParts = newDisk.partitions.map((part: any) => ({
+      name: part.name,
+      dev_path: part.dev_path,
+      size: String(part.size),
+      fs_type: part.fs_type || '',
+      mountpoint: part.mountpoint,
+      uuid: part.uuid,
+      flags: part.flags || [],
+      start: Number(part.start) || DISK_LAYOUT.GPT_START_OFFSET,
+      type: part.type || 'primary',
+      status: 'existing' as const,
+      tag: part.name,
+      loadPoint: part.mountpoint || '',
+      label: '',
+      isDelete: null,
+    }))
+    installInfo.partInfo = normalizePartInfo(rawParts, diskSize, diskPath, freeSpaceLabel)
   }
+
+  // 保存原始状态用于撤销（深拷贝）
+  installInfo.partInfoBefore = JSON.parse(JSON.stringify(installInfo.partInfo))
 }, { immediate: true })
 
 

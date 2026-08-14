@@ -12,8 +12,6 @@ contextBridge.exposeInMainWorld('electron', {
 contextBridge.exposeInMainWorld('electronAPI', {
   closeApp: () => ipcRenderer.send('close-app'),
   saveConfigFile: (filepath, content) => ipcRenderer.invoke('save-config-file', { filepath, content }),
-  generateYescryptHash: (password) => ipcRenderer.invoke('generate-yescrypt-hash', { password }),
   getDiskSectorSize: (params) => ipcRenderer.invoke('get-disk-sector-size', params),
-  getPartitionStartSector: (params) => ipcRenderer.invoke('get-partition-start-sector', params),
   getBootMode: () => ipcRenderer.invoke('get-boot-mode')
 })
