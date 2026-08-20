@@ -168,9 +168,14 @@ score = false
 [tool.pylint.variables]
 init-import = true
 
+[tool.codespell]
+skip = "*.lock,node_modules,.next,coverage,build,dist"
+# 项目术语/专有名词请加入忽略列表；注意：该值留空会导致 codespell 报错
+
 [tool.ruff]
 target-version = "py312"
 line-length = 160
+extend-exclude = ["build", "dist"]
 
 [tool.ruff.format]
 indent-style = "tab"
@@ -227,6 +232,10 @@ ignore = [
     "RUF051",   # if-key-in-dict-del
     "UP037",    # quoted-annotation
     "W191",     # tab-indentation
+    "RUF001",   # 中文全角标点（，（）等）被判为模糊字符，属误报
+    "RUF002",   # 同上（注释/文档字符串场景）
+    "RUF003",   # 同上（字符串场景）
+    "UP036",    # 存量大量 outdated-version-block 注释；清理 PR 处理后再收紧
 ]
 
 [tool.ruff.lint.mccabe]

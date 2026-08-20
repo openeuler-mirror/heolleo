@@ -1,0 +1,9 @@
+node_modules
+dist
+dist_electron
+build
+coverage
+.next
+*.lock
+pnpm-lock.yaml
+package-lock.json
