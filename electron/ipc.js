@@ -285,7 +285,7 @@ function registerIpcListeners() {
           // 返回磁盘真实大小：GPT 备份头（最后 33 扇区 ≈ 16.5KiB）的保护
           // 由底层分区工具（sgdisk/parted/fdisk）在创建分区时自动处理，
           // 与 anaconda/archinstall 一致，不在采集阶段预扣磁盘大小。
-          size: parseInt(disk.size, 10),
+          size: parseInt(disk.size, 10) - 1024 * 1024,
           type: disk.type,
           mountpoint: disk.mountpoint || null,
           sector_size: sectorSize,

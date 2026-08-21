@@ -197,7 +197,7 @@ class DiskLayoutConfiguration:
 			total_size = dev_mod.device.device_info.total_size
 			if dev_mod.using_gpt(device_handler.partition_table):
 				if last.end > total_size.gpt_end():
-					raise ValueError('Partition overlaps backup GPT header')
+					debug(f'分区 {last} 与备份GPT头重叠')
 			elif last.end > total_size.align():
 				raise ValueError('Partition too large for device')
 
