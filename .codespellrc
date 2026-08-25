@@ -1,0 +1,6 @@
+[codespell]
+skip = .git,*.lock,package-lock.json,node_modules,dist,coverage,build,json_tmp,locales
+# locales 为多语言翻译语料，英文词典大量误报外语单词（如 Sie/paket/som）；
+# 翻译源串中的英文拼写错误（如 syncronization）列入清理 PR 单独处理。
+# chage=Linux 命令、te=SELinux 策略文件扩展名、re-used=合法连字符写法，均为误报。
+ignore-words-list = chage,te,re-used
