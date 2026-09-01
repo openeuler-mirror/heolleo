@@ -195,3 +195,6 @@ npm run build
 ---
 
 **heolleo** - 让系统安装变得更简单、更智能！ 🚀
+
+<!-- Gate verification probe (temporary, for CI gate pipeline validation only): intentional misspelling and trailing whitespace below. -->
+recieve   
