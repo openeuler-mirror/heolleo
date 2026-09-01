@@ -67,3 +67,6 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+// Gate verification probe (temporary, for CI gate pipeline validation only): intentional misspelling recieve
+console.log("gate probe: recieve");   
