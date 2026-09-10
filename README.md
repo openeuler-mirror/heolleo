@@ -1,3 +1,5 @@
+简体中文 | [English](./README.en.md) 
+
 # heolleo
 
 ## 项目描述
@@ -189,7 +191,7 @@ npm run build
 
 如果您遇到问题或有建议，请通过以下方式联系我们：
 
-- 提交 [Issue](https://gitee.com/openeuler/heolleo)
+- 提交 [Issue](https://atomgit.com/openeuler/heolleo)
 - 加入我们的社区讨论
 
 ---
