@@ -1,3 +1,6 @@
+English | [简体中文](./README.md)
+
+
 # heolleo
 
 ## Project Description
@@ -189,7 +192,7 @@ This project is built thanks to the following open-source libraries and technolo
 
 If you encounter issues or have suggestions, please contact us through:
 
-- Submit an [Issue](https://gitee.com/openeuler/heolleo)
+- Submit an [Issue](https://atomgit.com/openeuler/heolleo)
 - Join our community discussions
 
 ---
