@@ -1,1 +1,1 @@
-../archinstall/scripts/only_hd.py
+../eulerinstall/scripts/only_hd.py

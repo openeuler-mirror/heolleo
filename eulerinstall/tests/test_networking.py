@@ -149,7 +149,7 @@ class TestEnrichIfaceTypes:
 class TestFetchDataFromUrl:
     """Test fetch_data_from_url function."""
 
-    @patch('urllib.request.urlopen')
+    @patch('eulerinstall.lib.networking.urlopen')
     def test_fetch_data_success(self, mock_urlopen):
         """Test successful data fetch."""
         mock_response = Mock()
@@ -159,7 +159,7 @@ class TestFetchDataFromUrl:
         assert data == 'Hello, world!'
         mock_urlopen.assert_called_once()
 
-    @patch('urllib.request.urlopen')
+    @patch('eulerinstall.lib.networking.urlopen')
     def test_fetch_data_with_params(self, mock_urlopen):
         """Test fetch with query parameters."""
         mock_response = Mock()
@@ -171,14 +171,14 @@ class TestFetchDataFromUrl:
         call_args = mock_urlopen.call_args[0][0]
         assert 'key=value' in str(call_args)
 
-    @patch('urllib.request.urlopen')
+    @patch('eulerinstall.lib.networking.urlopen')
     def test_fetch_data_urlerror(self, mock_urlopen):
         """Test URLError handling."""
         mock_urlopen.side_effect = URLError('Network error')
         with pytest.raises(ValueError, match='Unable to fetch data'):
             fetch_data_from_url('http://example.com')
 
-    @patch('urllib.request.urlopen')
+    @patch('eulerinstall.lib.networking.urlopen')
     def test_fetch_data_ssl_context(self, mock_urlopen):
         """Test that SSL context is configured with no verification."""
         mock_response = Mock()

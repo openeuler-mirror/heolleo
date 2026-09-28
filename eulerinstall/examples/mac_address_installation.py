@@ -1,9 +1,9 @@
 import time
 
-from archinstall.lib.output import info
-from archinstall.lib.profile.profiles_handler import profile_handler
-from archinstall.lib.storage import storage
-from archinstall.tui import Tui
+from eulerinstall.lib.output import info
+from eulerinstall.lib.profile.profiles_handler import profile_handler
+from eulerinstall.lib.storage import storage
+from eulerinstall.tui import Tui
 
 for _profile in profile_handler.get_mac_addr_profiles():
 	# Tailored means it's a match for this machine

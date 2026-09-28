@@ -15,7 +15,6 @@ import sys
 import time
 import traceback
 
-from .lib.args import arch_config_handler
 from .lib.disk.utils import disk_layouts
 from .lib.packages.packages import check_package_upgrade
 
@@ -86,6 +85,9 @@ def main() -> int:
 	OR straight as a module: python -m archinstall
 	In any case we will be attempting to load the provided script to be run from the scripts/ folder
 	"""
+	# 延迟导入：避免包在 import 期解析系统命令行参数（见 lib/args.py 的惰性单例说明）
+	from .lib.args import arch_config_handler
+
 	if '--help' in sys.argv or '-h' in sys.argv:
 		arch_config_handler.print_help()
 		return 0
@@ -161,7 +163,6 @@ __all__ = [
 	'Pacman',
 	'SysInfo',
 	'Tui',
-	'arch_config_handler',
 	'debug',
 	'disk_layouts',
 	'error',

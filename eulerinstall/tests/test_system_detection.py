@@ -86,11 +86,9 @@ class TestSystemType:
 
         result = SystemType.detect()
         assert result == 'arch'
-        assert mock_run.call_count == 3
-        calls = mock_run.call_args_list
-        assert calls[0][0][0] == ['which', 'pacman']
-        assert calls[1][0][0] == ['which', 'dnf']
-        assert calls[2][0][0] == ['which', 'apt']
+        # 实现为短路检测：命中 pacman 即返回，不会继续探测 dnf/apt
+        assert mock_run.call_count == 1
+        assert mock_run.call_args_list[0][0][0] == ['which', 'pacman']
 
     @patch('eulerinstall.lib.system_detection.Path')
     @patch('subprocess.run')
