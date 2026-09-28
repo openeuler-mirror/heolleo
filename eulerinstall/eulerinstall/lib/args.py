@@ -293,7 +293,7 @@ class ArchConfigHandler:
 
 	def _get_version(self) -> str:
 		try:
-			return version('archinstall')
+			return version('eulerinstall')
 		except Exception:
 			return 'Archinstall version not found'
 
@@ -555,4 +555,21 @@ class ArchConfigHandler:
 		return clean_args
 
 
-arch_config_handler: ArchConfigHandler = ArchConfigHandler()
+_arch_config_handler: ArchConfigHandler | None = None
+
+
+def __getattr__(name: str) -> Any:
+	"""
+	惰性初始化模块级 arch_config_handler 单例（PEP 562 模块级 __getattr__）。
+
+	ArchConfigHandler() 在实例化时会解析 sys.argv（argparse）。若放在 import 期执行，
+	会让 `import eulerinstall` 产生副作用：例如在 pytest 下收到测试框架的命令行参数，
+	argparse 报错并 SystemExit(2)，导致整个测试会话 INTERNALERROR 崩溃。
+	改为首次真正访问 arch_config_handler 时才实例化，避免 import 期副作用。
+	"""
+	if name == 'arch_config_handler':
+		global _arch_config_handler
+		if _arch_config_handler is None:
+			_arch_config_handler = ArchConfigHandler()
+		return _arch_config_handler
+	raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

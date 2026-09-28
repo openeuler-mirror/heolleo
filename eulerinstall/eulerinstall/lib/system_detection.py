@@ -28,7 +28,7 @@ class SystemType:
                     content = f.read().lower()
                     if 'arch' in content:
                         return 'arch'
-                    elif 'openEuler' in content:
+                    elif 'openeuler' in content:
                         return 'openEuler'
                     elif 'ubuntu' in content:
                         return 'ubuntu'

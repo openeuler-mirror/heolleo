@@ -1,1 +1,1 @@
-../archinstall/scripts/guided.py
+../eulerinstall/scripts/guided.py

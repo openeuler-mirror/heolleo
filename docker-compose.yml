@@ -1,0 +1,22 @@
+services:
+  heolleo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # 基础镜像：openEuler 24.03 LTS；离线/内网环境可替换为本地镜像 tag
+        BASE_IMAGE: openeuler/openeuler:24.03-lts
+        # 依赖下载走国内镜像，避免公网拉取超时
+        NPM_REGISTRY: https://registry.npmmirror.com
+        ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+    image: heolleo:0.1.0
+    container_name: heolleo
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

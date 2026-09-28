@@ -1,1 +1,1 @@
-../archinstall/scripts/minimal.py
+../eulerinstall/scripts/minimal.py

@@ -157,6 +157,51 @@ npm run build
 # 可使用 electron-builder 或 electron-forge 进行打包
 ```
 
+### 容器化部署 (openEuler 24.03 LTS)
+
+为规避在无图形界面 / 依赖下载受限环境（如 TTFHW 评测环境）下因 Electron 二进制下载
+或 GUI 挂起导致的运行超时，项目提供了基于 **openEuler 24.03 LTS** 基座的容器化构建与
+服务化运行方式：
+
+- 构建阶段跳过 Electron 二进制下载（前端静态构建不依赖它），显著缩短构建时长；
+- 默认走国内 npm 镜像源，避免公网拉取卡顿；
+- 运行阶段通过 nginx 服务化托管构建产物，并提供 `/healthz` 健康检查端点，供评测环境
+  快速探活，而非启动需要图形界面的 Electron 进程。
+
+#### 一键构建并运行（docker compose）
+
+```sh
+docker compose up -d --build
+# 验证服务
+curl http://127.0.0.1:8080/healthz
+```
+
+#### 仅构建镜像
+
+```sh
+docker build -t heolleo:0.1.0 .
+```
+
+#### 运行容器（映射到宿主机 8080 端口）
+
+```sh
+docker run -d --name heolleo -p 8080:80 heolleo:0.1.0
+```
+
+#### 覆盖构建参数（离线 / 内网环境可用）
+
+```sh
+docker build \
+  --build-arg BASE_IMAGE=hub.oepkgs.net/openeuler/openeuler:24.03-lts \
+  --build-arg NPM_REGISTRY=https://registry.npmjs.org \
+  --build-arg ELECTRON_MIRROR=https://github.com/electron/electron/releases/download/ \
+  -t heolleo:0.1.0 .
+```
+
+> 说明：本项目本质是 Electron 桌面安装器，需要图形界面显示；容器化路径面向"构建 +
+> 静态 WEB 服务"场景，用于评测/CI 的快速构建与探活。若需在容器中运行完整 Electron
+> GUI，还需额外安装依赖库并通过 `xvfb-run` 提供虚拟显示。
+
 ## 🤝 贡献指南
 
 我们欢迎任何形式的贡献！请参考以下步骤：

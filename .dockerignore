@@ -1,0 +1,25 @@
+# 版本控制 / 构建缓存 / 日志
+.git
+.gitignore
+.gitattributes
+.gitmodules
+
+# 依赖与构建产物（构建上下文不携带，交由容器内重新生成）
+node_modules
+dist
+dist-ssr
+dist_electron
+coverage
+*.tsbuildinfo
+
+# 与前端构建无关的子项目/测试与工具配置
+eulerinstall
+ssg_ut_test
+.bats
+bats
+
+# IDE / 系统文件
+.vscode
+.idea
+.DS_Store
+*.log

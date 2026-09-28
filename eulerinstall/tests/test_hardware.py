@@ -37,8 +37,8 @@ class TestCpuVendor:
 
     def test_get_ucode(self):
         """Test get_ucode returns correct path"""
-        assert CpuVendor.AuthenticAMD.get_ucode() == 'amd-ucode.img'
-        assert CpuVendor.GenuineIntel.get_ucode() == 'intel-ucode.img'
+        assert str(CpuVendor.AuthenticAMD.get_ucode()) == 'amd-ucode.img'
+        assert str(CpuVendor.GenuineIntel.get_ucode()) == 'intel-ucode.img'
         assert CpuVendor._Unknown.get_ucode() is None
 
 
@@ -229,7 +229,7 @@ class TestSysInfo:
     @patch('eulerinstall.lib.hardware.SysCommand')
     def test_virtualization(self, mock_syscommand):
         """Test virtualization returns output"""
-        mock_syscommand.return_value = b'kvm\n'
+        mock_syscommand.return_value.__str__.return_value = 'kvm'
         result = SysInfo.virtualization()
         assert result == 'kvm'
 

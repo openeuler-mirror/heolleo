@@ -4,25 +4,25 @@ from pathlib import Path
 
 from pytest import MonkeyPatch
 
-from archinstall.default_profiles.profile import GreeterType
-from archinstall.lib.args import ArchConfig, ArchConfigHandler, Arguments
-from archinstall.lib.hardware import GfxDriver
-from archinstall.lib.models.application import ApplicationConfiguration, Audio, AudioConfiguration, BluetoothConfiguration
-from archinstall.lib.models.authentication import AuthenticationConfiguration, U2FLoginConfiguration, U2FLoginMethod
-from archinstall.lib.models.bootloader import Bootloader
-from archinstall.lib.models.device import DiskLayoutConfiguration, DiskLayoutType
-from archinstall.lib.models.locale import LocaleConfiguration
-from archinstall.lib.models.mirrors import CustomRepository, CustomServer, MirrorConfiguration, MirrorRegion, SignCheck, SignOption
-from archinstall.lib.models.network import NetworkConfiguration, Nic, NicType
-from archinstall.lib.models.packages import Repository
-from archinstall.lib.models.profile import ProfileConfiguration
-from archinstall.lib.models.users import Password, User
-from archinstall.lib.profile.profiles_handler import profile_handler
-from archinstall.lib.translationhandler import translation_handler
+from eulerinstall.default_profiles.profile import GreeterType
+from eulerinstall.lib.args import ArchConfig, ArchConfigHandler, Arguments
+from eulerinstall.lib.hardware import GfxDriver
+from eulerinstall.lib.models.application import ApplicationConfiguration, Audio, AudioConfiguration, BluetoothConfiguration
+from eulerinstall.lib.models.authentication import AuthenticationConfiguration, U2FLoginConfiguration, U2FLoginMethod
+from eulerinstall.lib.models.bootloader import Bootloader
+from eulerinstall.lib.models.device import DiskLayoutConfiguration, DiskLayoutType
+from eulerinstall.lib.models.locale import LocaleConfiguration
+from eulerinstall.lib.models.mirrors import CustomRepository, CustomServer, MirrorConfiguration, MirrorRegion, SignCheck, SignOption
+from eulerinstall.lib.models.network import NetworkConfiguration, Nic, NicType
+from eulerinstall.lib.models.packages import Repository
+from eulerinstall.lib.models.profile import ProfileConfiguration
+from eulerinstall.lib.models.users import Password, User
+from eulerinstall.lib.profile.profiles_handler import profile_handler
+from eulerinstall.lib.translationhandler import translation_handler
 
 
 def test_default_args(monkeypatch: MonkeyPatch) -> None:
-	monkeypatch.setattr('sys.argv', ['archinstall'])
+	monkeypatch.setattr('sys.argv', ['eulerinstall'])
 	handler = ArchConfigHandler()
 	args = handler.args
 	assert args == Arguments(
@@ -55,7 +55,7 @@ def test_correct_parsing_args(
 	monkeypatch.setattr(
 		'sys.argv',
 		[
-			'archinstall',
+			'eulerinstall',
 			'--config',
 			str(config_fixture),
 			'--config-url',
@@ -112,7 +112,7 @@ def test_config_file_parsing(
 	monkeypatch.setattr(
 		'sys.argv',
 		[
-			'archinstall',
+			'eulerinstall',
 			'--config',
 			str(config_fixture),
 			'--creds',
@@ -127,7 +127,7 @@ def test_config_file_parsing(
 	arch_config.disk_config.device_modifications = []  # type: ignore[union-attr]
 
 	assert arch_config == ArchConfig(
-		version=version('archinstall'),
+		version=version('eulerinstall'),
 		script='test_script',
 		app_config=ApplicationConfiguration(
 			bluetooth_config=BluetoothConfiguration(enabled=True),
@@ -235,7 +235,7 @@ def test_deprecated_mirror_config_parsing(
 	monkeypatch.setattr(
 		'sys.argv',
 		[
-			'archinstall',
+			'eulerinstall',
 			'--config',
 			str(deprecated_mirror_config),
 		],
@@ -271,7 +271,7 @@ def test_deprecated_creds_config_parsing(
 	monkeypatch.setattr(
 		'sys.argv',
 		[
-			'archinstall',
+			'eulerinstall',
 			'--creds',
 			str(deprecated_creds_config),
 		],
@@ -300,7 +300,7 @@ def test_deprecated_audio_config_parsing(
 	monkeypatch.setattr(
 		'sys.argv',
 		[
-			'archinstall',
+			'eulerinstall',
 			'--config',
 			str(deprecated_audio_config),
 		],
@@ -321,7 +321,7 @@ def test_encrypted_creds_with_arg(
 	monkeypatch.setattr(
 		'sys.argv',
 		[
-			'archinstall',
+			'eulerinstall',
 			'--creds',
 			str(encrypted_creds_fixture),
 			'--creds-decryption-key',
@@ -352,7 +352,7 @@ def test_encrypted_creds_with_env_var(
 	monkeypatch.setattr(
 		'sys.argv',
 		[
-			'archinstall',
+			'eulerinstall',
 			'--creds',
 			str(encrypted_creds_fixture),
 		],

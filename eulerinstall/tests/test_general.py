@@ -55,14 +55,14 @@ class TestGeneratePassword:
 class TestLocateBinary:
     """Test locate_binary function."""
 
-    @patch('shutil.which')
+    @patch('eulerinstall.lib.general.which')
     def test_found(self, mock_which: MagicMock) -> None:
         """Should return path when binary exists."""
         mock_which.return_value = '/usr/bin/foo'
         result = locate_binary('foo')
         assert result == '/usr/bin/foo'
 
-    @patch('shutil.which')
+    @patch('eulerinstall.lib.general.which')
     def test_not_found(self, mock_which: MagicMock) -> None:
         """Should raise RequirementError when binary not found."""
         mock_which.return_value = None

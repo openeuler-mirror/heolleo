@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from archinstall.default_profiles.minimal import MinimalProfile
-from archinstall.lib.disk.device_handler import device_handler
-from archinstall.lib.disk.filesystem import FilesystemHandler
-from archinstall.lib.installer import Installer
-from archinstall.lib.models.device import (
+from eulerinstall.default_profiles.minimal import MinimalProfile
+from eulerinstall.lib.disk.device_handler import device_handler
+from eulerinstall.lib.disk.filesystem import FilesystemHandler
+from eulerinstall.lib.installer import Installer
+from eulerinstall.lib.models.device import (
 	DeviceModification,
 	DiskEncryption,
 	DiskLayoutConfiguration,
@@ -18,9 +18,9 @@ from archinstall.lib.models.device import (
 	Size,
 	Unit,
 )
-from archinstall.lib.models.profile import ProfileConfiguration
-from archinstall.lib.models.users import Password, User
-from archinstall.lib.profile.profiles_handler import profile_handler
+from eulerinstall.lib.models.profile import ProfileConfiguration
+from eulerinstall.lib.models.users import Password, User
+from eulerinstall.lib.profile.profiles_handler import profile_handler
 
 # we're creating a new ext4 filesystem installation
 fs_type = FilesystemType('ext4')
