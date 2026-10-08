@@ -53,7 +53,7 @@ from .models.locale import LocaleConfiguration
 from .models.mirrors import MirrorConfiguration
 from .models.network import Nic
 from .models.users import User
-from .output import debug, error, info, log, logger, warn
+from .output import debug, error, info, log, logger, step_start, warn
 from .pacman import Pacman
 from .pacman.config import PacmanConfig
 from .plugins import plugins
@@ -1611,12 +1611,18 @@ semodule -i gdm_policy.pp
 		pacman_conf.enable(optional_repositories)
 		pacman_conf.apply()
 
+		# 安装进度：挂载系统虚拟文件系统（dev/proc/sys/run）
+		step_start('mount_bind')
+
 		# mount 'etc, proc, sys'
 		for fs in ["dev", "proc", "sys", "run"]:
 			(self.target / fs).mkdir(exist_ok=True)
 			cmd1= f'mount --bind /{fs} {self.target}/{fs}'
 			info(cmd1)
 			SysCommand(cmd1)        
+
+		# 安装进度：生成并配置SELinux安全策略
+		step_start('prepare_selinux')
 
 		# 创建selinux规则
 		se_script = Path("/etc/add_selinux_policy.sh")
@@ -1637,10 +1643,16 @@ semodule -i gdm_policy.pp
 		info(f'排除多路径设备')
 		self._run_command(["multipath", "-F"])
 
+		# 安装进度：挂载 LiveOS 系统镜像
+		step_start('mount_system_img')
+
 		# 挂载squashfs.img, rootfs.img
 		self._mount_squashfs()
 		self._mount_rootfs()
 			
+		# 安装进度：使用 rsync 复制系统文件到目标磁盘
+		step_start('copy_system')
+
 		# 复制系统文件 - 智能优化版本
 		info(f'快速复制系统文件从 {self.ROOTFS_MOUNT_DIR}')
 		try:
@@ -1684,6 +1696,9 @@ semodule -i gdm_policy.pp
 		# https://github.com/archlinux/archinstall/issues/1837
 		# https://github.com/archlinux/archinstall/issues/1841
 		if not self._disable_fstrim:
+			# 安装进度：启用SSD定期清理（TRIM）
+			step_start('trim_ssd')
+
 			self.enable_periodic_trim()
 
 		# TODO: Support locale and timezone
@@ -1691,9 +1706,15 @@ semodule -i gdm_policy.pp
 		# sys_command(f'arch-chroot {self.target} ln -s /usr/share/zoneinfo/{localtime} /etc/localtime')
 		# sys_command('arch-chroot /mnt hwclock --hctosys --localtime')
 		if hostname:
+			# 安装进度：设置目标系统主机名
+			step_start('set_hostname')
+
 			self.set_hostname(hostname)
 
 		if locale_config:
+			# 安装进度：配置系统语言环境
+			step_start('set_locale')
+
 			self.set_locale(locale_config)
 			# self.set_keyboard_language(locale_config.kb_layout)
 

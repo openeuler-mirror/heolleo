@@ -345,3 +345,22 @@ def log(
 		from eulerinstall.tui.curses_menu import Tui
 
 		Tui.print(text)
+
+
+def step_start(key: str) -> None:
+	"""
+	输出安装步骤开始的结构化标记，供前端安装进度条实时同步展示当前执行步骤。
+
+	标记格式: >>>STEP_START:<key>
+	例如: >>>STEP_START:copy_system
+
+	该标记独立于普通日志，使用固定前缀便于前端稳定解析；
+	步骤的实际展示名称由前端依据 key 映射为对应语言的文本。
+	"""
+	marker = f'>>>STEP_START:{key}'
+
+	logger.log(logging.INFO, marker)
+
+	from eulerinstall.tui.curses_menu import Tui
+
+	Tui.print(marker)

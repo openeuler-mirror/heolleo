@@ -26,7 +26,7 @@ from eulerinstall.lib.models.device import (
 	EncryptionType,
 )
 from eulerinstall.lib.models.users import User
-from eulerinstall.lib.output import debug, error, info
+from eulerinstall.lib.output import debug, error, info, step_start
 from eulerinstall.lib.packages.packages import check_package_upgrade
 from eulerinstall.lib.profile.profiles_handler import profile_handler
 from eulerinstall.lib.translationhandler import tr
@@ -62,6 +62,9 @@ def perform_installation(mountpoint: Path) -> None:
 	Only requirement is that the block devices are
 	formatted and setup prior to entering this function.
 	"""
+	# 安装进度：初始化安装流程
+	step_start('init_install')
+
 	info('Starting installation...')
 
 	config = arch_config_handler.config
@@ -83,16 +86,28 @@ def perform_installation(mountpoint: Path) -> None:
 	) as installation:
 		# Mount all the drives to the desired mountpoint
 		if disk_config.config_type != DiskLayoutType.Pre_mount:
+			# 安装进度：挂载目标磁盘分区
+			step_start('mount_partitions')
+
 			installation.mount_ordered_layout()
+
+		# 安装进度：校验安装环境
+		step_start('check_env')
 
 		installation.sanity_check()
 
 		if disk_config.config_type != DiskLayoutType.Pre_mount:
 			if disk_config.disk_encryption and disk_config.disk_encryption.encryption_type != EncryptionType.NoEncryption:
+				# 安装进度：生成加密密钥文件
+				step_start('gen_keys')
+
 				# generate encryption key files for the mounted luks devices
 				installation.generate_key_files()
 
 		if mirror_config := config.mirror_config:
+			# 安装进度：配置软件源镜像
+			step_start('set_mirrors_host')
+
 			installation.set_mirrors(mirror_config, on_target=False)
 
 		installation.minimal_installation(
@@ -103,9 +118,15 @@ def perform_installation(mountpoint: Path) -> None:
 		)
 
 		if mirror_config := config.mirror_config:
+			# 安装进度：更新目标系统软件源
+			step_start('set_mirrors_target')
+
 			installation.set_mirrors(mirror_config, on_target=True)
 
 		if config.bootloader and config.bootloader != Bootloader.NO_BOOTLOADER:
+			# 安装进度：安装引导程序
+			step_start('install_bootloader')
+
 			installation.add_bootloader(config.bootloader, config.uki)
 
 		# If user selected to copy the current ISO network configuration
@@ -113,6 +134,9 @@ def perform_installation(mountpoint: Path) -> None:
 		network_config = config.network_config
 
 		if network_config:
+			# 安装进度：配置目标系统网络
+			step_start('config_network')
+
 			network_config.install_network_config(
 				installation,
 				config.profile_config,
@@ -120,22 +144,44 @@ def perform_installation(mountpoint: Path) -> None:
 
 		if config.auth_config:
 			if config.auth_config.users:
+				# 安装进度：创建用户账号
+				step_start('create_users')
+
 				installation.create_users(config.auth_config.users)
-				auth_handler.setup_auth(installation, config.auth_config, config.hostname)
+
+			# 安装进度：配置用户认证
+			step_start('auth_setup')
+
+			auth_handler.setup_auth(installation, config.auth_config, config.hostname)
 
 		if config.packages and config.packages[0] != '':
+			# 安装进度：安装额外软件包
+			step_start('install_packages')
+
 			installation.add_additional_packages(config.packages)
 
 		if app_config := config.app_config:
+			# 安装进度：安装应用程序
+			step_start('install_apps')
+
 			application_handler.install_applications(installation, app_config)
 
 		if profile_config := config.profile_config:
+			# 安装进度：安装桌面环境
+			step_start('install_profile')
+
 			profile_handler.install_profile_config(installation, profile_config)
 
 		if timezone := config.timezone:
+			# 安装进度：设置系统时区
+			step_start('set_timezone')
+
 			installation.set_timezone(timezone)
 
 		if config.ntp:
+			# 安装进度：启用时间同步
+			step_start('enable_ntp')
+
 			installation.activate_time_synchronization()
 
 		if accessibility_tools_in_use():
@@ -151,6 +197,9 @@ def perform_installation(mountpoint: Path) -> None:
 		# If the user provided a list of services to be enabled, pass the list to the enable_service function.
 		# Note that while it's called enable_service, it can actually take a list of services and iterate it.
 		if servies := config.services:
+			# 安装进度：启用系统服务
+			step_start('enable_services')
+
 			installation.enable_service(servies)
 
 		if disk_config.is_default_btrfs():
@@ -164,12 +213,24 @@ def perform_installation(mountpoint: Path) -> None:
 		if cc := config.custom_commands:
 			run_custom_user_commands(cc, installation)
 
+		# 安装进度：生成文件系统挂载表（fstab）
+		step_start('gen_fstab')
+
 		installation.genfstab()
+
+		# 安装进度：重建initramfs
+		step_start('rebuild_initramfs')
 
 		info(f'generate regenerate_initramfs')
 		installation.regenerate_initramfs()
 
+		# 安装进度：更新引导配置（grub）
+		step_start('update_grub')
+
 		installation.updategrub()
+
+		# 安装进度：清理安装环境
+		step_start('cleanup')
 
 		info(f'post deal for devstation')
 		installation.post_deal_devstation()

@@ -32,7 +32,7 @@ from ..models.device import (
 	Size,
 	Unit,
 )
-from ..output import debug, info, error
+from ..output import debug, info, error, step_start
 from .device_handler import device_handler
 from ..general import SysCommand
 from ..exceptions import SysCallError
@@ -50,6 +50,9 @@ class FilesystemHandler:
 		if self._disk_config.config_type == DiskLayoutType.Pre_mount:
 			debug('Disk layout configuration is set to pre-mount, not performing any operations')
 			return
+
+		# 安装进度：创建分区表并格式化磁盘分区
+		step_start('format_disk')
 
 		device_mods = [d for d in self._disk_config.device_modifications if d.partitions]
 		info(f'self._disk_config.device_modifications {device_mods}')
@@ -149,6 +152,9 @@ class FilesystemHandler:
 				raise exc
 
 	def perform_lvm_operations(self) -> None:
+		# 安装进度：配置 LVM 逻辑卷
+		step_start('lvm_setup')
+
 		info('Setting up LVM config...')
 
 		if not self._disk_config.lvm_config:
