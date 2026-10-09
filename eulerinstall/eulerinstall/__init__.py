@@ -19,7 +19,7 @@ from .lib.disk.utils import disk_layouts
 from .lib.packages.packages import check_package_upgrade
 
 from .lib.hardware import SysInfo
-from .lib.output import FormattedOutput, debug, error, info, log, warn
+from .lib.output import FormattedOutput, debug, error, info, log, step_start, warn
 from .lib.pacman import Pacman
 from .lib.plugins import load_plugin, plugins
 from .lib.translationhandler import Language, tr, translation_handler
@@ -99,7 +99,10 @@ def main() -> int:
 	# 检测系统类型并记录信息
 	from .lib.system_detection import SystemType
 	SystemType.log_system_info()
-	
+
+	# 安装进度：检查系统环境（系统类型检测、软件源元数据同步、版本检查等）
+	step_start('prepare_env')
+
 	# 检查系统是否支持
 	if not SystemType.is_supported():
 		warn('Warning: This system type is not officially supported by archinstall. Use at your own risk.')

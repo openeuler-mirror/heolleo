@@ -22,8 +22,12 @@
           class="progress-comp"
           :percentage="progress"
           :stroke-width="8"
+          :show-text="false"
           :status="installStatus === 'failed' ? 'exception' : undefined"
         />
+        <div class="step-info">
+          <div class="step-name">{{ currentStepName }}</div>
+        </div>
         <el-icon v-if="logs.length > 0" @click="showLog = !showLog" class="log-icon" size="20">
           <IconFileText />
         </el-icon>
@@ -36,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { inject, ref, onMounted, reactive, nextTick } from 'vue'
+import { computed, inject, ref, onMounted, reactive, nextTick } from 'vue'
 import { INSTALL_INFO_KEY, InstallInfo } from '@/utils/constant.ts'
 import { useI18n } from 'vue-i18n'
 import StepBar from '@/views/components/installer/comp/StepBar.vue'
@@ -46,7 +50,46 @@ const emit = defineEmits(['finish', 'failed'])
 
 const { t } = useI18n()
 
-const progress = ref(0)
+// 安装流程标准步骤序列，与 eulerinstall 安装器输出的 >>>STEP_START:<key> 标记一一对应。
+// 顺序必须与安装器实际执行顺序一致；未启用的条件步骤（如加密、LVM 等）不会被标记，
+// 进度位置会按标准序列跳转，但不会出现超前或延迟。
+const STEP_KEYS: string[] = [
+  'prepare_env', // 检查系统环境
+  'format_disk', // 创建分区表并格式化磁盘
+  'lvm_setup', // 配置 LVM 逻辑卷（可选）
+  'init_install', // 初始化安装流程
+  'mount_partitions', // 挂载目标磁盘分区
+  'check_env', // 校验安装环境
+  'gen_keys', // 生成加密密钥（可选）
+  'set_mirrors_host', // 配置软件源镜像（可选）
+  'mount_bind', // 挂载系统虚拟文件系统
+  'prepare_selinux', // 配置 SELinux 安全策略
+  'mount_system_img', // 挂载系统镜像
+  'copy_system', // 复制系统文件（rsync）
+  'trim_ssd', // 启用 SSD 定期清理
+  'set_hostname', // 设置主机名
+  'set_locale', // 配置系统语言环境
+  'set_mirrors_target', // 更新目标系统软件源（可选）
+  'install_bootloader', // 安装引导程序
+  'config_network', // 配置网络（可选）
+  'create_users', // 创建用户
+  'auth_setup', // 配置用户认证（可选）
+  'install_packages', // 安装额外软件包（可选）
+  'install_apps', // 安装应用程序（可选）
+  'install_profile', // 安装桌面环境（可选）
+  'set_timezone', // 设置系统时区（可选）
+  'enable_ntp', // 启用时间同步（可选）
+  'enable_services', // 启用系统服务（可选）
+  'gen_fstab', // 生成文件系统挂载表
+  'rebuild_initramfs', // 重建 initramfs
+  'update_grub', // 更新引导配置
+  'cleanup', // 清理安装环境
+  'finish' // 安装完成
+]
+
+// eulerinstall 安装器输出的步骤标记，格式：>>>STEP_START:<key>
+const STEP_START_RE = /^>>>STEP_START:([A-Za-z0-9_-]+)$/
+
 const installInfo = inject<InstallInfo>(INSTALL_INFO_KEY, reactive({} as InstallInfo))
 const error = ref('')
 const installStatus = ref<'installing' | 'success' | 'failed'>('installing')
@@ -54,34 +97,59 @@ const showLog = ref(false)
 const logs = ref<string[]>([])
 const logViewer = ref<HTMLElement | null>(null)
 
+// 当前执行步骤在标准步骤序列中的下标（从 0 开始）
+const currentStepIndex = ref(0)
+const totalSteps = STEP_KEYS.length
+
+// 保留视觉进度指示：以当前步骤在总步骤中的位置换算进度百分比
+// （如处于第 3/8 步时显示约 37%），不再直接展示百分比数值。
+const progress = computed(() => Math.round(((currentStepIndex.value + 1) / totalSteps) * 100))
+
+// 当前正在执行的具体步骤名称
+const currentStepName = computed(() => t(`install.step.${STEP_KEYS[currentStepIndex.value]}`))
+
+// 解析安装日志中的步骤标记；返回 true 表示该行应进入日志视图，false 表示应过滤掉
+function handleLogLine(line: string): boolean {
+  const match = line.match(STEP_START_RE)
+  if (match) {
+    const key = match[1]
+    const index = STEP_KEYS.indexOf(key)
+    // 仅允许前进：忽略未知步骤与乱序/重复的旧步骤，保证显示与实际进程同步
+    if (index !== -1 && index >= currentStepIndex.value) {
+      currentStepIndex.value = index
+    }
+    return false
+  }
+  return true
+}
+
 async function install() {
-  const listener = (event, log) => {
-    logs.value.push(log)
+  let finished = false
+
+  const listener = (event, log: string) => {
+    for (const line of String(log).split(/\r?\n/)) {
+      if (!line) continue
+      if (handleLogLine(line)) {
+        logs.value.push(line)
+      }
+    }
     nextTick(() => {
       if (logViewer.value) {
         logViewer.value.scrollTop = logViewer.value.scrollHeight
       }
     })
-    if (log.includes('Starting installation...')) {
-      progress.value = 20
-    } else if (log.includes("installing packages ['base', 'base-devel', 'linux-firmware', 'linux', 'microcode_ctl']")) {
-      progress.value = 30
-    } else if (log.includes('Enabling periodic TRIM')) {
-      progress.value = 40
-    } else if (log.includes('Setting up swap on zram')) {
-      progress.value = 50
-    } else if (log.includes('Adding bootloader Systemd-boot')) {
-      progress.value = 60
-    } else if (log.includes('Activating systemd-timesyncd for time synchronization')) {
-      progress.value = 80
-    } else if (log.includes('Updating /mnt/etc/fstab')) {
-      progress.value = 90
-    } else if (log.includes('Installation completed without any errors')) {
-      progress.value = 100
-      installStatus.value = 'success'
-      emit('finish')
-      window.electron.ipcRenderer.removeListener('install-log', listener)
+    if (log.includes('Installation completed without any errors')) {
+      completeInstall()
     }
+  }
+
+  function completeInstall() {
+    if (finished) return
+    finished = true
+    currentStepIndex.value = totalSteps - 1
+    installStatus.value = 'success'
+    emit('finish')
+    window.electron.ipcRenderer.removeListener('install-log', listener)
   }
 
   window.electron.ipcRenderer.on('install-log', listener)
@@ -94,6 +162,8 @@ async function install() {
     if (!success) {
       throw new Error(t('install.install_failed'))
     }
+    // 进程正常退出时兜底标记安装完成（防止完成日志因输出差异而漏判）
+    completeInstall()
   } catch (err: any) {
     error.value = (err as Error).message
     installStatus.value = 'failed'
@@ -183,6 +253,19 @@ onMounted(() => {
 .progress-comp {
   flex-grow: 1;
 }
+.step-info {
+  min-width: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  .step-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2d3d;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+}
 .log-icon {
   cursor: pointer;
   color: #409eff;
@@ -190,10 +273,10 @@ onMounted(() => {
     color: #79bbff;
   }
 }
-:deep(.progress-comp) {
-  .el-progress__text {
-    margin-left: 0;
-    text-align: right;
-  }
+.error-message {
+  margin-top: 12px;
+  color: #f56c6c;
+  font-size: 13px;
+  text-align: left;
 }
 </style>
