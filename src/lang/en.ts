@@ -21,6 +21,7 @@ export default {
     partitionType: 'Partition Type',
     size: 'Size',
     mount_point: 'Mount Point',
+    no_mount_point: 'No mount point',
     filesystem: 'Filesystem',
     add_partition: 'Add Partition',
     installation_progress: 'Installation Progress',
