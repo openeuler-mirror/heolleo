@@ -21,6 +21,7 @@ export default {
     partitionType: '分区类型',
     size: '大小',
     mount_point: '挂载点',
+    no_mount_point: '无挂载点',
     filesystem: '文件系统',
     add_partition: '添加分区',
     installation_progress: '安装进度',

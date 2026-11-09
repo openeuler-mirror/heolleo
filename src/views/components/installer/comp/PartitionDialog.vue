@@ -36,7 +36,7 @@
             </el-select>
           </el-form-item>
           <el-form-item :label="$t('install.mount_point')" prop="mount">
-            <el-select v-model="pForm.mount" placeholder="无挂载点">
+            <el-select v-model="pForm.mount" :placeholder="$t('install.no_mount_point')">
               <el-option :label="$t('common.blank')" value="" />
               <el-option
                 v-for="item in MOUNT_POINTS"
